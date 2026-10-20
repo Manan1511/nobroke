@@ -1,9 +1,12 @@
-import { StrictMode } from "react"
+import { StrictMode, Suspense, lazy } from "react"
 import { createRoot } from "react-dom/client"
-import { BrowserRouter, MemoryRouter, Navigate, Route, Routes } from "react-router"
+import { BrowserRouter, MemoryRouter, Route, Routes } from "react-router"
 import "./index.css"
-import App from "./App"
-import Landing from "@/landing/Landing"
+// Each area loads only when opened: the 3D landing, the app, and the 404 page are separate downloads.
+const Landing = lazy(() => import("@/landing/Landing"))
+const App = lazy(() => import("./App"))
+const NotFound = lazy(() => import("@/pages/NotFound"))
+const Loading = () => <div className="min-h-svh bg-background" aria-busy="true" />
 import { StoreProvider } from "@/lib/store"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import ClickSpark from "@/components/bits/ClickSpark"
@@ -18,11 +21,13 @@ createRoot(document.getElementById("root")!).render(
       <TooltipProvider>
         <Router>
           <ClickSpark sparkColor={["#ff4a1c", "#ffcf36", "#48c98d", "#2997da"]} sparkSize={9} sparkRadius={20} sparkCount={8} duration={450}>
+          <Suspense fallback={<Loading />}>
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/app/:section?" element={<App />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
+          </Suspense>
           </ClickSpark>
         </Router>
       </TooltipProvider>

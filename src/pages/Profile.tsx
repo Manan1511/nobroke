@@ -13,7 +13,7 @@ import { PageHeader } from "@/components/shared"
 import { useStore } from "@/lib/store"
 
 export default function Profile() {
-  const { myFinancials, update } = useStore()
+  const { myFinancials, update, resetDemo } = useStore()
   const [income, setIncome] = useState(String(myFinancials.monthly_income))
   const [show, setShow] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -77,6 +77,13 @@ export default function Profile() {
             </div>
           ))}
         </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Demo data</CardTitle>
+          <CardDescription>Your changes are saved in this browser until NoBroke has its real backend.</CardDescription>
+        </CardHeader>
+        <CardFooter><Button variant="outline" onClick={() => { resetDemo(); toast.success("Sample data restored") }}>Reset to sample data</Button></CardFooter>
       </Card>
     </>
   )

@@ -1,12 +1,12 @@
-import { useEffect, useState, type ReactNode } from "react"
+import { Suspense, lazy, useEffect, useState, type ComponentType } from "react"
 import { Navigate, useNavigate, useParams } from "react-router"
-import { Moon, Sun, LogOut, UserCog, Search, Plus, House } from "lucide-react"
+import { Moon, Sun, LogOut, UserCog, Search, Plus, House, LayoutDashboard, Receipt, ArrowLeftRight, HeartHandshake, Menu } from "lucide-react"
 import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Kbd, KbdGroup } from "@/components/ui/kbd"
-import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
+import { SidebarProvider, SidebarInset, SidebarTrigger, useSidebar } from "@/components/ui/sidebar"
 import { CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator } from "@/components/ui/command"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb"
@@ -19,15 +19,19 @@ import { useStore } from "@/lib/store"
 import { startSmoothScroll, scrollToTop } from "@/lib/smooth-scroll"
 import { signOut, useSession } from "@/lib/session"
 import { inr } from "@/lib/utils"
-import Dashboard from "@/pages/Dashboard"
-import Groups from "@/pages/Groups"
-import Expenses from "@/pages/Expenses"
-import Balances from "@/pages/Balances"
-import SettleUp from "@/pages/SettleUp"
-import PayRules from "@/pages/PayRules"
-import Recurring from "@/pages/Recurring"
-import Friends from "@/pages/Friends"
-import Profile from "@/pages/Profile"
+const Dashboard = lazy(() => import("@/pages/Dashboard"))
+const Groups = lazy(() => import("@/pages/Groups"))
+const Expenses = lazy(() => import("@/pages/Expenses"))
+const Balances = lazy(() => import("@/pages/Balances"))
+const SettleUp = lazy(() => import("@/pages/SettleUp"))
+const PayRules = lazy(() => import("@/pages/PayRules"))
+const Recurring = lazy(() => import("@/pages/Recurring"))
+const Friends = lazy(() => import("@/pages/Friends"))
+const Profile = lazy(() => import("@/pages/Profile"))
+const NotFound = lazy(() => import("@/pages/NotFound"))
+
+// Fetch the other sections in the background once the first one is on screen, so switching is instant.
+const preloadPages = () => [import("@/pages/Groups"), import("@/pages/Expenses"), import("@/pages/Balances"), import("@/pages/SettleUp"), import("@/pages/PayRules"), import("@/pages/Recurring"), import("@/pages/Friends"), import("@/pages/Profile"), import("@/pages/Dashboard")]
 import { Magnetic, PageReveal } from "@/components/motion"
 
 // Light / dark mode: a class on <html>. Starts from the page's host theme (data-theme on <html>, set by
@@ -62,7 +66,7 @@ function useDarkMode() {
   return { dark, setDark }
 }
 
-const PAGES: Record<string, (props: { onNavigate: (id: string) => void }) => ReactNode> = { dashboard: Dashboard, groups: Groups, expenses: Expenses, balances: Balances, settle: SettleUp, rules: PayRules, recurring: Recurring, friends: Friends, profile: Profile }
+const PAGES: Record<string, ComponentType<{ onNavigate: (id: string) => void }>> = { dashboard: Dashboard, groups: Groups, expenses: Expenses, balances: Balances, settle: SettleUp, rules: PayRules, recurring: Recurring, friends: Friends, profile: Profile }
 
 // Ctrl+K / ⌘K: jump to any section, group or expense.
 function CommandMenu({ open, setOpen, go }: { open: boolean; setOpen: (v: boolean | ((o: boolean) => boolean)) => void; go: (id: string) => void }) {
@@ -99,6 +103,32 @@ function CommandMenu({ open, setOpen, go }: { open: boolean; setOpen: (v: boolea
   )
 }
 
+// Phones: a floating glass tab bar with the four main sections; "More" opens the full sidebar.
+const TABS = [
+  { id: "dashboard", label: "Home", icon: LayoutDashboard },
+  { id: "expenses", label: "Expenses", icon: Receipt },
+  { id: "settle", label: "Settle", icon: ArrowLeftRight },
+  { id: "friends", label: "Friends", icon: HeartHandshake },
+]
+function MobileTabBar({ page, go }: { page: string; go: (id: string) => void }) {
+  const { setOpenMobile } = useSidebar()
+  return (
+    <nav aria-label="Main sections" className="spatial-panel fixed inset-x-3 z-40 flex items-stretch justify-around rounded-full p-1.5 md:hidden" style={{ bottom: "calc(12px + env(safe-area-inset-bottom, 0px))" }}>
+      {TABS.map(({ id, label, icon: Icon }) => {
+        const active = page === id
+        const color = NAV.find((n) => n.id === id)?.color
+        return (
+          <button key={id} type="button" onClick={() => go(id)} aria-current={active ? "page" : undefined}
+            className={`flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[11px] font-medium transition-colors ${active ? "bg-foreground/[0.07] text-foreground" : "text-muted-foreground"}`}>
+            <Icon className={`size-5 transition-transform ${active ? `${color} scale-110` : ""}`} />{label}
+          </button>
+        )
+      })}
+      <button type="button" onClick={() => setOpenMobile(true)} className="flex flex-1 flex-col items-center gap-0.5 rounded-full py-1.5 text-[11px] font-medium text-muted-foreground"><Menu className="size-5" />More</button>
+    </nav>
+  )
+}
+
 export default function App() {
   const { section } = useParams()
   const navigate = useNavigate()
@@ -108,9 +138,10 @@ export default function App() {
   const { dark, setDark } = useDarkMode()
   const go = (p: string) => { navigate(pathFor(p)); scrollToTop() }
   useEffect(() => startSmoothScroll(), [])
+  useEffect(() => { const t = window.setTimeout(preloadPages, 1500); return () => window.clearTimeout(t) }, [])
   useEffect(() => { if (page) document.title = `${NAV.find((n) => n.id === page)?.label} · NoBroke` }, [page])
   if (!session) return <Navigate to="/" replace /> // signed out: the landing page offers Log in / Sign up
-  if (!page) return <Navigate to="/app" replace />
+  if (!page) return <NotFound />
   const Page = PAGES[page]
 
   return (
@@ -152,10 +183,13 @@ export default function App() {
             </DropdownMenu>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-6xl flex-1 space-y-6 p-4 md:p-8">
-          <PageReveal key={page} className="space-y-6"><Page onNavigate={go} /></PageReveal>
+        <main className="mx-auto w-full max-w-6xl flex-1 space-y-6 p-4 pb-28 md:p-8">
+          <Suspense fallback={<div className="h-[60vh]" aria-busy="true" />}>
+            <PageReveal key={page} className="space-y-6"><Page onNavigate={go} /></PageReveal>
+          </Suspense>
         </main>
       </SidebarInset>
+      <MobileTabBar page={page} go={go} />
       <CommandMenu open={searchOpen} setOpen={setSearchOpen} go={go} />
       <Toaster theme={dark ? "dark" : "light"} />
     </SidebarProvider>

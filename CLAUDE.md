@@ -65,7 +65,17 @@ Icons: lucide-react. Toasts: sonner. Routing: react-router v7. Landing: three 0.
   (Reveal, Money, Count, Spotlight, Glare, Magnetic) so timing/colours stay consistent; all respect reduced motion.
   Where: ClickSpark wraps the whole app (main.tsx); PageReveal (App.tsx, CSS .nb-rise) = every block + card of a page rises in one by one on open; Reveal = bill list; BlurText = page
   titles; Money/Count = dashboard numbers; Glare = stat cards; Spotlight = big dashboard cards; Magnetic = main
-  CTAs; ShinyText = sidebar tagline + landing greeting.
+  CTAs; ShinyText = sidebar tagline + landing greeting; RotatingText + GradientText = dashboard greeting;
+  StarBorder = dashboard Settle up; AnimatedList = notifications.
+- Sidebar: one sliding highlight pill (app-sidebar.tsx) in the open section's --nav colour.
+- Phones: floating glass tab bar (App.tsx MobileTabBar), main has pb-28 so it doesn't cover content.
+
+## Data, pages, loading
+- Store (lib/store.tsx) saves to localStorage `nobroke-data-v1`; Profile > "Reset to sample data" = resetDemo().
+- Editing: ExpenseDialog / BillDialog take an existing item (pencil buttons); groups rename, add/remove members,
+  leaving removes only you. Group page: Balances + Simplified debts from `groupBalances()` in lib/api.ts (mock:
+  equal/exact shares; backend replaces). Friends: History sheet. Unknown addresses: pages/NotFound.tsx.
+- Code splitting: Landing, App, NotFound and every page are React.lazy; other pages preload 1.5 s after first paint.
 
 ## Theme
 Matched to the landing page. Colours live in `src/index.css`: cream background #F2EEE6, ink #10100F as primary

@@ -1,4 +1,5 @@
 // App sidebar built on shadcn's Sidebar: collapses to icons on desktop (Ctrl+B), slides in on phones.
+import { useLayoutEffect, useRef, useState } from "react"
 import { Link } from "react-router"
 import { NAV } from "@/lib/nav"
 import {
@@ -31,6 +32,23 @@ export function AppSidebar({ page, onNavigate }: { page: string; onNavigate: (id
   }
   const go = (id: string) => { onNavigate(id); if (isMobile) setOpenMobile(false) }
 
+  // Sliding highlight: one tinted pill that glides to whichever section is open.
+  const content = useRef<HTMLDivElement>(null)
+  const [pill, setPill] = useState<{ top: number; left: number; width: number; height: number; color: string } | null>(null)
+  useLayoutEffect(() => {
+    const place = () => {
+      const box = content.current
+      const btn = box?.querySelector<HTMLElement>('[data-sidebar="menu-button"][data-active="true"]')
+      if (!box || !btn) return setPill(null)
+      const a = box.getBoundingClientRect(), b = btn.getBoundingClientRect()
+      setPill({ top: b.top - a.top + box.scrollTop, left: b.left - a.left, width: b.width, height: b.height, color: `var(--nav-${page})` })
+    }
+    place()
+    const ro = new ResizeObserver(place)
+    if (content.current) ro.observe(content.current)
+    return () => ro.disconnect()
+  }, [page])
+
   return (
     <Sidebar collapsible="icon" variant="floating">
       <SidebarHeader>
@@ -50,18 +68,22 @@ export function AppSidebar({ page, onNavigate }: { page: string; onNavigate: (id
         </SidebarMenu>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent ref={content} className="relative">
+        {pill && (
+          <span aria-hidden="true" className="pointer-events-none absolute z-0 rounded-md transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:transition-none"
+            style={{ ...pill, background: `color-mix(in oklab, ${pill.color} 14%, transparent)`, boxShadow: `inset 3px 0 0 ${pill.color}` }} />
+        )}
         {GROUPS.map((g) => (
           <SidebarGroup key={g.label}>
             <SidebarGroupLabel>{g.label}</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {g.ids.map((id) => {
-                  const { label, icon: Icon, anim, hover, color, activeTint } = NAV.find((n) => n.id === id)!
+                  const { label, icon: Icon, anim, hover, color } = NAV.find((n) => n.id === id)!
                   const active = page === id
                   return (
                     <SidebarMenuItem key={id}>
-                      <SidebarMenuButton isActive={active} tooltip={label} onClick={() => go(id)} className={activeTint}>
+                      <SidebarMenuButton isActive={active} tooltip={label} onClick={() => go(id)} className="relative z-[1] data-[active=true]:bg-transparent data-[active=true]:text-sidebar-accent-foreground">
                         <Icon className={cn("section-icon", color, active ? anim : hover)} />
                         <span>{label}</span>
                       </SidebarMenuButton>

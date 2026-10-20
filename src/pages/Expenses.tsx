@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react"
-import { Plus, ShieldCheck, TriangleAlert, Trash2, Search, ArrowUpDown } from "lucide-react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { Plus, ShieldCheck, TriangleAlert, Trash2, Search, ArrowUpDown, Pencil } from "lucide-react"
 import { toast } from "sonner"
 import { useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel, getPaginationRowModel, flexRender } from "@tanstack/react-table"
 import { Card, CardContent } from "@/components/ui/card"
@@ -28,9 +28,11 @@ import { inr } from "@/lib/utils"
 
 const today = () => new Date().toISOString().slice(0, 10)
 
-function AddExpenseDialog() {
+/** Add a new expense, or edit `expense` when given. */
+function ExpenseDialog({ expense }: { expense?: Expense }) {
   const { groups, userName, update, me } = useStore()
   const [open, setOpen] = useState(false)
+  const keepPeople = useRef(false) // set while filling the form from an existing expense
   const [groupId, setGroupId] = useState(groups[0]?.group_id ?? "")
   const [title, setTitle] = useState("")
   const [amount, setAmount] = useState("")
@@ -45,6 +47,7 @@ function AddExpenseDialog() {
 
   const group = groups.find((g) => g.group_id === groupId)
   useEffect(() => {
+    if (keepPeople.current) { keepPeople.current = false; return }
     setPeople(group?.members ?? []); setExact({})
     if (group && !group.members.includes(paidBy)) setPaidBy(group.members.includes(me) ? me : group.members[0])
   }, [groupId])
@@ -61,18 +64,34 @@ function AddExpenseDialog() {
   const incomeBlocked = mode === "INCOME_RATIO" && (checking || !incomeCheck?.ok)
   const canSave = title.trim() && Number(amount) > 0 && people.length > 0 && !exactMismatch && !incomeBlocked
 
+  const fill = () => {
+    if (!expense) return
+    keepPeople.current = expense.group_id !== groupId
+    setGroupId(expense.group_id); setTitle(expense.title); setAmount(String(expense.total_amount)); setDate(expense.created_at)
+    setPaidBy(expense.paid_by); setMode(expense.split_mode); setNote(expense.note ?? "")
+    setPeople(expense.participants ?? groups.find((g) => g.group_id === expense.group_id)?.members ?? [])
+    setExact(Object.fromEntries(Object.entries(expense.exact_shares ?? {}).map(([k, v]) => [k, String(v)])))
+  }
   const save = () => {
+    if (expense) {
+      const changed: Expense = { ...expense, group_id: groupId, paid_by: paidBy, title: title.trim(), total_amount: Number(amount), split_mode: mode, created_at: date, participants: people, exact_shares: mode === "EXACT" ? exact : undefined, note: note.trim() || undefined }
+      update("expenses", (list) => list.map((x) => (x.expense_id === expense.expense_id ? changed : x)))
+      toast.success("Expense updated", { description: `${title.trim()} · ${inr(amount)}` })
+      setOpen(false); return
+    }
     update("expenses", (e) => [{ expense_id: newId("e"), group_id: groupId, paid_by: paidBy, title: title.trim(), total_amount: Number(amount), split_mode: mode, created_at: date, participants: people, ...(mode === "EXACT" && { exact_shares: exact }), ...(note.trim() && { note: note.trim() }) }, ...e])
     toast.success("Expense added", { description: `${title.trim()} · ${inr(amount)}` })
     setTitle(""); setAmount(""); setMode("EQUAL"); setNote(""); setExact({}); setDate(today()); setOpen(false)
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild><Button><Plus /> Add expense</Button></DialogTrigger>
+    <Dialog open={open} onOpenChange={(v) => { if (v) fill(); setOpen(v) }}>
+      <DialogTrigger asChild>{expense
+        ? <Button variant="ghost" size="icon" aria-label={`Edit ${expense.title}`}><Pencil /></Button>
+        : <Button><Plus /> Add expense</Button>}</DialogTrigger>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>Add expense</DialogTitle>
+          <DialogTitle>{expense ? "Edit expense" : "Add expense"}</DialogTitle>
           <DialogDescription>Who paid, how much, and how to split it.</DialogDescription>
         </DialogHeader>
 
@@ -155,7 +174,7 @@ function AddExpenseDialog() {
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button disabled={!canSave} onClick={save}>Add expense</Button>
+          <Button disabled={!canSave} onClick={save}>{expense ? "Save changes" : "Add expense"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -203,7 +222,7 @@ export default function Expenses() {
     { accessorKey: "split_mode", header: "Split", cell: ({ getValue }) => label(getValue<string>()) },
     { accessorKey: "total_amount", header: ({ column }) => <div className="text-right"><SortHeader column={column} className="ml-0 -mr-2">Total</SortHeader></div>,
       cell: ({ getValue }) => <div className="text-right tabular-nums">{inr(getValue())}</div> },
-    { id: "actions", header: "", cell: ({ row }) => <div className="text-right"><DeleteExpense expense={row.original} /></div> },
+    { id: "actions", header: "", cell: ({ row }) => <div className="flex justify-end"><ExpenseDialog expense={row.original} /><DeleteExpense expense={row.original} /></div> },
   ], [groupName])
 
   const table = useReactTable({
@@ -223,7 +242,7 @@ export default function Expenses() {
 
   return (
     <>
-      <PageHeader title="Expenses" description="Everything that's been paid for and split." action={<AddExpenseDialog />} />
+      <PageHeader title="Expenses" description="Everything that's been paid for and split." action={<ExpenseDialog />} />
       <InputGroup className="max-w-sm">
         <InputGroupAddon><Search /></InputGroupAddon>
         <InputGroupInput placeholder="Search expenses" value={q} onChange={(e) => setQ(e.target.value)} />

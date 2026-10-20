@@ -3,7 +3,7 @@ import { formatDistanceToNow, parseISO } from "date-fns"
 import { Bell, BellRing, CalendarClock, CircleCheck, UserPlus, Workflow } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { ScrollArea } from "@/components/ui/scroll-area"
+import AnimatedList from "@/components/bits/AnimatedList"
 import { useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 import type { LucideIcon } from "lucide-react"
@@ -38,25 +38,25 @@ export function NotificationsMenu({ onNavigate }: { onNavigate: (id: string) => 
           <span className="text-sm font-semibold">Notifications</span>
           <Button variant="link" size="sm" className="h-auto p-0 text-xs" disabled={!unread} onClick={markAll}>Mark all as read</Button>
         </div>
-        <ScrollArea className="max-h-80">
-          <ul className="grid">
-            {notifications.map((n) => {
-              const k = KIND[n.type] ?? KIND.BILL
-              return (
-                <li key={n.id}>
-                  <button type="button" onClick={() => open(n)} className={cn("flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-accent", !n.read && "bg-accent/40")}>
-                    <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-full", k.tone)}><k.icon className="size-4" /></span>
-                    <span className="grid flex-1 gap-0.5">
-                      <span className={cn("text-sm", !n.read && "font-medium")}>{n.text}</span>
-                      <span className="text-xs text-muted-foreground">{formatDistanceToNow(parseISO(n.at), { addSuffix: true })}</span>
-                    </span>
-                    {!n.read && <span className="mt-1.5 size-2 shrink-0 rounded-full bg-primary" aria-label="Unread" />}
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-        </ScrollArea>
+        {/* React Bits AnimatedList: rows slide in, arrow keys move through them, Enter opens one. */}
+        <AnimatedList
+          items={notifications.map((n) => {
+            const k = KIND[n.type] ?? KIND.BILL
+            return {
+              id: n.id,
+              icon: <span className={cn("flex size-8 items-center justify-center rounded-full", k.tone)}><k.icon className="size-4" /></span>,
+              title: <span className={cn("text-sm", !n.read && "font-semibold")}>{n.text}</span>,
+              description: formatDistanceToNow(parseISO(n.at), { addSuffix: true }),
+              meta: !n.read ? <span className="block size-2 rounded-full bg-brand" aria-label="Unread" /> : undefined,
+            }
+          })}
+          onItemSelect={(_, i) => open(notifications[i])}
+          theme={document.documentElement.classList.contains("dark") ? "dark" : "light"}
+          frame={false}
+          showGradients={false}
+          maxHeight={340}
+          className="w-full"
+        />
       </PopoverContent>
     </Popover>
   )

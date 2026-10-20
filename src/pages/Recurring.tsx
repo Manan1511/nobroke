@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react"
-import { Plus, Info, CalendarClock, Repeat } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
+import { Plus, Info, CalendarClock, Repeat, Pencil, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { format, parseISO } from "date-fns"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter, CardAction } from "@/components/ui/card"
@@ -16,10 +16,16 @@ import { AmountInput, DatePicker, PeoplePicker, SimpleSelect, SplitModeToggle } 
 import { useStore, newId } from "@/lib/store"
 import { inr } from "@/lib/utils"
 import type { Frequency, SplitMode } from "@/types"
+import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog"
+import { Money, Spotlight } from "@/components/motion"
+import { cn } from "@/lib/utils"
+import type { RecurringTemplate } from "@/types"
 
-function NewBillDialog() {
+/** Create a recurring bill, or edit `template` when given. */
+function BillDialog({ template }: { template?: RecurringTemplate }) {
   const { groups, userName, update, me } = useStore()
   const [open, setOpen] = useState(false)
+  const keepPeople = useRef(false)
   type BillForm = { group_id: string; title: string; total_amount: string; paid_by: string; split_mode: SplitMode; frequency: Frequency; next_run_date: string }
   const blank = (): BillForm => ({ group_id: groups[0]?.group_id ?? "", title: "", total_amount: "", paid_by: me, split_mode: "EQUAL", frequency: "MONTHLY", next_run_date: "" })
   const [f, setF] = useState(blank)
@@ -28,6 +34,7 @@ function NewBillDialog() {
   const [people, setPeople] = useState(group?.members ?? [])
   const [exact, setExact] = useState<Record<string, string>>({})
   useEffect(() => {
+    if (keepPeople.current) { keepPeople.current = false; return }
     setPeople(group?.members ?? []); setExact({})
     if (group && !group.members.includes(f.paid_by)) setF((x) => ({ ...x, paid_by: group.members.includes(me) ? me : group.members[0] }))
   }, [f.group_id])
@@ -38,18 +45,32 @@ function NewBillDialog() {
   const exactMismatch = f.split_mode === "EXACT" && Number(f.total_amount) > 0 && Math.abs(exactSum - Number(f.total_amount)) > 0.001
   const ok = f.title.trim() && Number(f.total_amount) > 0 && f.next_run_date && people.length > 0 && !tooFewForIncome && !exactMismatch
 
+  const fill = () => {
+    if (!template) return
+    keepPeople.current = template.group_id !== f.group_id
+    setF({ group_id: template.group_id, title: template.title, total_amount: String(template.total_amount), paid_by: template.paid_by, split_mode: template.split_mode, frequency: template.frequency, next_run_date: template.next_run_date })
+    setPeople(template.participants)
+    setExact(Object.fromEntries(Object.entries(template.fixed_shares ?? {}).map(([k, v]) => [k, String(v)])))
+  }
   const save = () => {
+    if (template) {
+      const changed: RecurringTemplate = { ...template, ...f, title: f.title.trim(), total_amount: Number(f.total_amount), participants: people, fixed_shares: f.split_mode === "EXACT" ? exact : undefined }
+      update("recurring", (r) => r.map((x) => (x.template_id === template.template_id ? changed : x)))
+      toast.success(`${f.title.trim()} updated`); setOpen(false); return
+    }
     update("recurring", (r) => [...r, { ...f, title: f.title.trim(), template_id: newId("t"), total_amount: Number(f.total_amount), is_active: true, participants: people, ...(f.split_mode === "EXACT" && { fixed_shares: exact }) }])
     toast.success(`${f.title.trim()} will be billed ${label(f.frequency).toLowerCase()}`)
     setF(blank()); setOpen(false)
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild><Button><Plus /> New recurring bill</Button></DialogTrigger>
+    <Dialog open={open} onOpenChange={(v) => { if (v) fill(); setOpen(v) }}>
+      <DialogTrigger asChild>{template
+        ? <Button variant="ghost" size="icon" aria-label={`Edit ${template.title}`}><Pencil /></Button>
+        : <Button><Plus /> New recurring bill</Button>}</DialogTrigger>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>New recurring bill</DialogTitle>
+          <DialogTitle>{template ? "Edit recurring bill" : "New recurring bill"}</DialogTitle>
           <DialogDescription>Set it up once. It's split and added to balances on every billing date.</DialogDescription>
         </DialogHeader>
         <FieldGroup>
@@ -90,7 +111,7 @@ function NewBillDialog() {
         </FieldGroup>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button disabled={!ok} onClick={save}>Create bill</Button>
+          <Button disabled={!ok} onClick={save}>{template ? "Save changes" : "Create bill"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -99,34 +120,49 @@ function NewBillDialog() {
 
 export default function Recurring() {
   const { recurring, update, userName, groupName } = useStore()
-  const toggle = (t, v) => {
+  const toggle = (t: RecurringTemplate, v: boolean) => {
     update("recurring", (r) => r.map((x) => (x.template_id === t.template_id ? { ...x, is_active: v } : x)))
     toast(v ? `${t.title} resumed` : `${t.title} paused`)
   }
   return (
     <>
-      <PageHeader title="Recurring bills" description="Rent, Wi-Fi and subscriptions that split themselves." action={<NewBillDialog />} />
+      <PageHeader title="Recurring bills" description="Rent, Wi-Fi and subscriptions that split themselves." action={<BillDialog />} />
       {recurring.length === 0 ? (
         <Empty>
           <EmptyHeader><EmptyMedia><Repeat /></EmptyMedia><EmptyTitle>No recurring bills</EmptyTitle><EmptyDescription>Add rent or a subscription once and stop re-entering it every month.</EmptyDescription></EmptyHeader>
-          <EmptyContent><NewBillDialog /></EmptyContent>
+          <EmptyContent><BillDialog /></EmptyContent>
         </Empty>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {recurring.map((t) => (
-            <Card key={t.template_id} className={t.is_active ? "" : "opacity-60"}>
+            <Spotlight key={t.template_id}>
+            <Card className={cn("h-full", !t.is_active && "opacity-60")}>
               <CardHeader>
                 <CardTitle>{t.title}</CardTitle>
                 <CardDescription>{groupName(t.group_id)} · paid by {userName(t.paid_by)}</CardDescription>
                 <CardAction><Switch checked={t.is_active} onCheckedChange={(v) => toggle(t, v)} aria-label={`${t.title} active`} /></CardAction>
               </CardHeader>
               <CardContent className="grid gap-3">
-                <div className="text-2xl font-semibold tabular-nums">{inr(t.total_amount)}</div>
+                <div className="text-2xl font-semibold"><Money value={t.total_amount} /></div>
                 <div className="flex flex-wrap gap-2"><Badge variant="secondary">{label(t.frequency)}</Badge><Badge variant="outline">{label(t.split_mode)}</Badge></div>
                 <AvatarStack ids={t.participants} />
               </CardContent>
-              <CardFooter className="text-sm text-muted-foreground">{t.is_active ? `Next bill: ${format(parseISO(t.next_run_date), "d MMM yyyy")}` : "Paused"}</CardFooter>
+              <CardFooter className="mt-auto justify-between gap-2 text-sm text-muted-foreground">
+                <span>{t.is_active ? `Next bill: ${format(parseISO(t.next_run_date), "d MMM yyyy")}` : "Paused"}</span>
+                <span className="flex">
+                  <BillDialog template={t} />
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild><Button variant="ghost" size="icon" aria-label={`Delete ${t.title}`}><Trash2 /></Button></AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader><AlertDialogTitle>Delete "{t.title}"?</AlertDialogTitle><AlertDialogDescription>No new bills will be added. Bills already split stay as they are.</AlertDialogDescription></AlertDialogHeader>
+                      <AlertDialogFooter><AlertDialogCancel>Keep it</AlertDialogCancel>
+                        <AlertDialogAction className="bg-destructive text-primary-foreground hover:bg-destructive/90" onClick={() => { update("recurring", (r) => r.filter((x) => x.template_id !== t.template_id)); toast.success(`${t.title} deleted`) }}>Delete bill</AlertDialogAction></AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </span>
+              </CardFooter>
             </Card>
+            </Spotlight>
           ))}
         </div>
       )}

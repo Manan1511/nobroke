@@ -11,9 +11,15 @@ import { BalanceChart, GroupDonut, RecentActivity, SettledRing, SpendingChart, S
 import { useStore } from "@/lib/store"
 import { cn, inr } from "@/lib/utils"
 import { Magnetic } from "@/components/motion"
+import GradientText from "@/components/bits/GradientText"
+import RotatingText from "@/components/bits/RotatingText"
+import StarBorder from "@/components/bits/StarBorder"
+import { useSession } from "@/lib/session"
 
 // Soft colour per split type, so the recent expenses list is easy to scan.
 const SPLIT_DOT = { EQUAL: "bg-primary", EXACT: "bg-info", INCOME_RATIO: "bg-warning" }
+
+const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening" }
 
 export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => void }) {
   const { obligations, expenses, rules, spending, me, groupName } = useStore()
@@ -28,15 +34,24 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
   const net = owed - owe
   const armed = rules.filter((r) => r.status === "ARMED").length
   const trend = monthTrend(spending)
+  const session = useSession()
   const thisMonth = spending.at(-1)?.your_share ?? 0
 
   return (
     <>
       <PageHeader title="Dashboard" description="Where your money stands across every group."
         action={<div className="flex gap-2">
-          <Button variant="outline" onClick={() => onNavigate("settle")}><ArrowLeftRight /> Settle up</Button>
+          <StarBorder as="button" type="button" onClick={() => onNavigate("settle")} color="#ff4a1c" radius={999} thickness={1.5} duration={5} className="h-9 px-4! py-0! text-sm"><ArrowLeftRight className="size-4" /> Settle up</StarBorder>
           <Magnetic><Button onClick={() => onNavigate("expenses")}><Plus /> Add expense</Button></Magnetic>
         </div>} />
+
+      {/* Greeting: the name shimmers in the landing's orange/gold; the motto rotates. */}
+      <p className="-mt-3 flex flex-wrap items-baseline gap-x-2 text-lg text-muted-foreground">
+        <span>{greeting()},</span>
+        <GradientText colors={["#ff4a1c", "#ffcf36", "#ff4a1c"]} animationSpeed={6} className="font-semibold">{(session?.name ?? "there").split(" ")[0]}</GradientText>
+        <span aria-hidden="true">·</span>
+        <RotatingText texts={["Split it.", "Settle it.", "Stay unbroke."]} rotationInterval={2600} mainClassName="font-medium text-foreground" />
+      </p>
 
       {armed > 0 && (
         <Alert className="border-info/25 bg-info-soft [&>svg]:text-info">
