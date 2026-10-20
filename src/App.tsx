@@ -1,0 +1,160 @@
+import { useEffect, useState, type ReactNode } from "react"
+import { Navigate, useNavigate, useParams } from "react-router"
+import { Moon, Sun, LogOut, UserCog, Search, Plus, House } from "lucide-react"
+import { toast } from "sonner"
+import { AppSidebar } from "@/components/app-sidebar"
+import { Button } from "@/components/ui/button"
+import { Separator } from "@/components/ui/separator"
+import { Kbd, KbdGroup } from "@/components/ui/kbd"
+import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
+import { CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator } from "@/components/ui/command"
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator } from "@/components/ui/dropdown-menu"
+import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb"
+import { Toaster } from "@/components/ui/sonner"
+import { UserAvatar } from "@/components/shared"
+import { NotificationsMenu } from "@/components/notifications-menu"
+import { NAV, idForSlug, pathFor } from "@/lib/nav"
+import { useStore } from "@/lib/store"
+import { startSmoothScroll, scrollToTop } from "@/lib/smooth-scroll"
+import { signOut, useSession } from "@/lib/session"
+import { inr } from "@/lib/utils"
+import Dashboard from "@/pages/Dashboard"
+import Groups from "@/pages/Groups"
+import Expenses from "@/pages/Expenses"
+import Balances from "@/pages/Balances"
+import SettleUp from "@/pages/SettleUp"
+import PayRules from "@/pages/PayRules"
+import Recurring from "@/pages/Recurring"
+import Friends from "@/pages/Friends"
+import Profile from "@/pages/Profile"
+
+// Light / dark mode: a class on <html>. Starts from the page's host theme (data-theme on <html>, set by
+// viewers like the shared-link page), then the toggle choice saved in this browser, then the system setting.
+const html = document.documentElement
+const systemDark = window.matchMedia("(prefers-color-scheme: dark)")
+const savedTheme = () => { try { return localStorage.getItem("nobroke-theme") } catch { return null } }
+const startDark = () => {
+  const host = html.dataset.theme
+  if (host === "dark" || host === "light") return host === "dark"
+  const saved = savedTheme()
+  return saved ? saved === "dark" : systemDark.matches
+}
+
+function useDarkMode() {
+  const [dark, setDarkState] = useState(startDark)
+  const setDark = (next: boolean | ((d: boolean) => boolean)) => setDarkState((d) => {
+    const v = typeof next === "function" ? next(d) : next
+    try { localStorage.setItem("nobroke-theme", v ? "dark" : "light") } catch { /* storage blocked: fine */ }
+    return v
+  })
+  useEffect(() => { html.classList.toggle("dark", dark) }, [dark])
+  // Follow the host / system when they change (a viewer's theme switch, or the OS going dark at night).
+  useEffect(() => {
+    const fromHost = () => { const t = html.dataset.theme; if (t === "dark" || t === "light") setDarkState(t === "dark") }
+    const fromSystem = (e: MediaQueryListEvent) => { if (!html.dataset.theme && !savedTheme()) setDarkState(e.matches) }
+    const observer = new MutationObserver(fromHost)
+    observer.observe(html, { attributes: true, attributeFilter: ["data-theme"] })
+    systemDark.addEventListener("change", fromSystem)
+    return () => { observer.disconnect(); systemDark.removeEventListener("change", fromSystem) }
+  }, [])
+  return { dark, setDark }
+}
+
+const PAGES: Record<string, (props: { onNavigate: (id: string) => void }) => ReactNode> = { dashboard: Dashboard, groups: Groups, expenses: Expenses, balances: Balances, settle: SettleUp, rules: PayRules, recurring: Recurring, friends: Friends, profile: Profile }
+
+// Ctrl+K / ⌘K: jump to any section, group or expense.
+function CommandMenu({ open, setOpen, go }: { open: boolean; setOpen: (v: boolean | ((o: boolean) => boolean)) => void; go: (id: string) => void }) {
+  const { groups, expenses } = useStore()
+  useEffect(() => {
+    const h = (e) => { if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); setOpen((o) => !o) } }
+    window.addEventListener("keydown", h)
+    return () => window.removeEventListener("keydown", h)
+  }, [setOpen])
+  const run = (fn: () => void) => { setOpen(false); fn() }
+  return (
+    <CommandDialog open={open} onOpenChange={setOpen} title="Search NoBroke" description="Jump to a page, group or expense">
+      <CommandInput placeholder="Search pages, groups, expenses…" />
+      <CommandList>
+        <CommandEmpty>Nothing found.</CommandEmpty>
+        <CommandGroup heading="Pages">
+          {NAV.map(({ id, label, icon: Icon, color }) => (
+            <CommandItem key={id} value={label} onSelect={() => run(() => go(id))}><Icon className={color} /> {label}</CommandItem>
+          ))}
+        </CommandGroup>
+        <CommandSeparator />
+        <CommandGroup heading="Groups">
+          {groups.map((g) => <CommandItem key={g.group_id} value={`group ${g.group_name}`} onSelect={() => run(() => go("groups"))}>{g.group_name}</CommandItem>)}
+        </CommandGroup>
+        <CommandGroup heading="Expenses">
+          {expenses.map((e) => (
+            <CommandItem key={e.expense_id} value={`expense ${e.title}`} onSelect={() => run(() => go("expenses"))}>
+              {e.title}<span className="ml-auto text-xs text-muted-foreground tabular-nums">{inr(e.total_amount)}</span>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+      </CommandList>
+    </CommandDialog>
+  )
+}
+
+export default function App() {
+  const { section } = useParams()
+  const navigate = useNavigate()
+  const session = useSession()
+  const page = idForSlug(section)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const { dark, setDark } = useDarkMode()
+  const go = (p: string) => { navigate(pathFor(p)); scrollToTop() }
+  useEffect(() => startSmoothScroll(), [])
+  useEffect(() => { if (page) document.title = `${NAV.find((n) => n.id === page)?.label} · NoBroke` }, [page])
+  if (!session) return <Navigate to="/" replace /> // signed out: the landing page offers Log in / Sign up
+  if (!page) return <Navigate to="/app" replace />
+  const Page = PAGES[page]
+
+  return (
+    <SidebarProvider>
+      <AppSidebar page={page} onNavigate={go} />
+      <SidebarInset>
+        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur">
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem className="hidden sm:block"><BreadcrumbLink className="cursor-pointer" onClick={() => go("dashboard")}>NoBroke</BreadcrumbLink></BreadcrumbItem>
+              <BreadcrumbSeparator className="hidden sm:block" />
+              <BreadcrumbItem><BreadcrumbPage>{NAV.find((n) => n.id === page)?.label}</BreadcrumbPage></BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="outline" size="sm" className="hidden w-56 justify-start text-muted-foreground md:flex" onClick={() => setSearchOpen(true)}>
+              <Search /> Search…
+              <KbdGroup className="ml-auto"><Kbd>Ctrl</Kbd><Kbd>K</Kbd></KbdGroup>
+            </Button>
+            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSearchOpen(true)} aria-label="Search"><Search /></Button>
+            <Button size="sm" className="hidden sm:flex" onClick={() => go("expenses")}><Plus /> Expense</Button>
+            <NotificationsMenu onNavigate={go} />
+            <Button variant="ghost" size="icon" onClick={() => setDark((d) => !d)} aria-label="Toggle dark mode">{dark ? <Sun /> : <Moon />}</Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" aria-label="Account menu" className="rounded-full"><UserAvatar id="u1" name={session.name} /></button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel className="grid gap-0.5"><span>{session.name}</span><span className="text-xs font-normal text-muted-foreground">{session.email}</span></DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => go("profile")}><UserCog /> Profile & privacy</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate("/")}><House /> NoBroke home page</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => { signOut(); toast("Signed out"); navigate("/") }}><LogOut /> Sign out</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        </header>
+        <main className="mx-auto w-full max-w-6xl flex-1 space-y-6 p-4 md:p-8">
+          <Page onNavigate={go} />
+        </main>
+      </SidebarInset>
+      <CommandMenu open={searchOpen} setOpen={setSearchOpen} go={go} />
+      <Toaster theme={dark ? "dark" : "light"} />
+    </SidebarProvider>
+  )
+}

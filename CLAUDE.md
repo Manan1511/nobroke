@@ -18,7 +18,7 @@ incomes bucketed into bands), and recurring bills (billed once per period).
 All core business logic lives in PostgreSQL (see PRD section 3), not in the frontend.
 
 ## Stack
-React 19 + Vite + Tailwind CSS v4, plain JavaScript (JSX, no TypeScript).
+React 19 + Vite + Tailwind CSS v4 + TypeScript (strict, `npm run typecheck`; data shapes in `src/types.ts`). `src/landing/scene.ts` is the teammate's plain JS port with @ts-nocheck.
 shadcn/ui-compatible setup: `components.json`, `@/` alias -> `src/`, shadcn color tokens in `src/index.css`.
 Icons: lucide-react. Toasts: sonner. Routing: react-router v7. Landing: three 0.180 + gsap 3.13. Smooth scroll: lenis.
 
