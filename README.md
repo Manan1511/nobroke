@@ -34,23 +34,11 @@ npm run dev
 - Confirm dialogs: delete expense, leave group, settle, cancel rule, block friend
 - Toasts after every action, empty states, spinners, skeletons
 
-## Swapping in real shadcn components
-Every file in `src/components/ui/` uses the **same file name and same exports as shadcn**.
-To replace one with the real version:
-```
-npx shadcn@latest add button --overwrite
-```
-The pages don't need to change. Do them one at a time and check the app still runs.
-
-Files that are simplified placeholders (replace these first):
-`dialog`, `alert-dialog`, `sheet`, `dropdown-menu`, `tabs`, `tooltip`, `accordion`.
-`src/lib/overlay.jsx` is only used by those placeholders; delete it once they're all replaced.
-
-Notes:
-- `native-select` is used instead of shadcn's `select` (simpler). You can keep it — shadcn has Native Select too.
-- `checkbox`, `switch`, `radio-group` use `checked` / `onCheckedChange` / `onValueChange` like shadcn.
-- Toasts already use the real `sonner` package.
-- The sidebar is custom (`src/components/app-sidebar.jsx`). shadcn's Sidebar is a bigger block; swap it last.
+## UI components
+Everything in `src/components/ui/` is the official shadcn/ui code (added with `npx shadcn@latest add`).
+Extra pieces built from them are in `src/components/form-bits.jsx`: ₹ amount input, split-mode toggle,
+date picker, people picker (combobox), select and the hover card on people's names.
+Press **Ctrl+K** to search, **Ctrl+B** to collapse the sidebar.
 
 ## Handing over to the backend
 `src/lib/api.js` is the API contract. Each function returns canned data in the shape the real

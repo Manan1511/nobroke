@@ -4,8 +4,7 @@ import { toast } from "sonner"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter, CardAction } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Checkbox } from "@/components/ui/checkbox"
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog"
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
@@ -13,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "@/components/ui/empty"
 import { PageHeader, AvatarStack, UserAvatar, label } from "@/components/shared"
+import { PeoplePicker, PersonHover } from "@/components/form-bits"
 import { useStore, newId } from "@/lib/store"
 import { inr } from "@/lib/utils"
 
@@ -22,7 +22,6 @@ function CreateGroupDialog() {
   const [name, setName] = useState("")
   const [members, setMembers] = useState([])
   const friends = friendships.filter((f) => f.status === "ACTIVE").map((f) => f.friend_id)
-  const toggle = (id, on) => setMembers((m) => (on ? [...m, id] : m.filter((x) => x !== id)))
   const save = () => {
     update("groups", (g) => [...g, { group_id: newId("g"), group_name: name.trim(), created_by: me, members: [me, ...members] }])
     toast.success(`Group "${name.trim()}" created`)
@@ -36,19 +35,17 @@ function CreateGroupDialog() {
           <DialogTitle>Create group</DialogTitle>
           <DialogDescription>Add friends now or invite more later.</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-2">
-          <Label htmlFor="gname">Group name</Label>
-          <Input id="gname" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Hostel room 214" />
-        </div>
-        <div className="grid gap-3">
-          <Label>Members</Label>
-          {friends.map((id) => (
-            <Label key={id} className="font-normal">
-              <Checkbox checked={members.includes(id)} onCheckedChange={(v) => toggle(id, v)} />
-              {users.find((u) => u.user_id === id)?.name}
-            </Label>
-          ))}
-        </div>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="gname">Group name</FieldLabel>
+            <Input id="gname" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Hostel room 214" />
+          </Field>
+          <Field>
+            <FieldLabel>Members</FieldLabel>
+            <PeoplePicker options={friends} value={members} onChange={setMembers} placeholder="Add friends" />
+            <FieldDescription>You're added automatically. Only accepted friends are listed.</FieldDescription>
+          </Field>
+        </FieldGroup>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
           <Button disabled={!name.trim()} onClick={save}>Create group</Button>
@@ -84,7 +81,7 @@ function GroupDetail({ group, onBack }) {
         </TabsContent>
         <TabsContent value="members">
           <Card><CardContent className="grid gap-3">
-            {group.members.map((id) => <div key={id} className="flex items-center gap-3"><UserAvatar id={id} />{userName(id)}</div>)}
+            {group.members.map((id) => <div key={id} className="flex items-center gap-3"><UserAvatar id={id} /><PersonHover id={id} /></div>)}
           </CardContent></Card>
         </TabsContent>
       </Tabs>

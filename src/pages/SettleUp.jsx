@@ -3,8 +3,8 @@ import { ArrowRight, Route, TriangleAlert, CircleCheck } from "lucide-react"
 import { toast } from "sonner"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Label } from "@/components/ui/label"
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Spinner } from "@/components/ui/spinner"
@@ -12,6 +12,7 @@ import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion"
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
 import { PageHeader, UserAvatar, label } from "@/components/shared"
+import { PersonHover, SimpleSelect } from "@/components/form-bits"
 import { useStore, newId } from "@/lib/store"
 import { findRoute } from "@/lib/api"
 import { inr } from "@/lib/utils"
@@ -21,8 +22,8 @@ function RoutePath({ path }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       {path.map((id, i) => (
-        <span key={id} className="flex items-center gap-2">
-          <span className="flex items-center gap-2 rounded-full border py-1 pl-1 pr-3 text-sm"><UserAvatar id={id} className="size-6" />{userName(id)}</span>
+        <span key={`${id}-${i}`} className="flex items-center gap-2">
+          <span className="flex items-center gap-2 rounded-full border bg-card py-1 pl-1 pr-3 text-sm"><UserAvatar id={id} className="size-6" /><PersonHover id={id}>{userName(id)}</PersonHover></span>
           {i < path.length - 1 && <ArrowRight className="size-4 text-muted-foreground" />}
         </span>
       ))}
@@ -60,12 +61,11 @@ export default function SettleUp() {
           </CardHeader>
           <CardContent className="grid gap-4">
             {mine.length === 0 ? <p className="text-sm text-muted-foreground">You don't owe anyone right now.</p> : (
-              <div className="grid gap-2">
-                <Label htmlFor="ob">Debt</Label>
-                <NativeSelect id="ob" value={selected} onChange={(e) => { setSelected(e.target.value); setRoute(null) }}>
-                  {mine.map((o) => <NativeSelectOption key={o.obligation_id} value={o.obligation_id}>{userName(o.creditor_id)} · {inr(o.remaining_amount)} · {o.source}</NativeSelectOption>)}
-                </NativeSelect>
-              </div>
+              <Field>
+                <FieldLabel htmlFor="ob">Debt</FieldLabel>
+                <SimpleSelect id="ob" value={selected} onValueChange={(v) => { setSelected(v); setRoute(null) }}
+                  options={mine.map((o) => ({ value: o.obligation_id, label: `${userName(o.creditor_id)} · ${inr(o.remaining_amount)} · ${o.source}` }))} />
+              </Field>
             )}
             {loading && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Finding a route…</div>}
             {route && (
@@ -120,9 +120,10 @@ export default function SettleUp() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="shadow-none">
         <CardHeader><CardTitle>Settlement history</CardTitle></CardHeader>
         <CardContent>
+          <ScrollArea className="h-64 pr-3">
           <Table>
             <TableHeader><TableRow><TableHead>Date</TableHead><TableHead>Type</TableHead><TableHead>Steps</TableHead><TableHead className="text-right">Cleared</TableHead></TableRow></TableHeader>
             <TableBody>
@@ -136,6 +137,7 @@ export default function SettleUp() {
               ))}
             </TableBody>
           </Table>
+          </ScrollArea>
         </CardContent>
       </Card>
     </>

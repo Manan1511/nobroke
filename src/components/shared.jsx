@@ -1,6 +1,6 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { NAV } from "@/components/app-sidebar"
+import { NAV } from "@/lib/nav"
 import { useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 

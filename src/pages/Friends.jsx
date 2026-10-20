@@ -1,12 +1,13 @@
 import { useState } from "react"
-import { UserPlus, Check, X, Ban, Pencil, Info } from "lucide-react"
+import { UserPlus, Check, X, Ban, Pencil } from "lucide-react"
 import { toast } from "sonner"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardAction, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Slider } from "@/components/ui/slider"
+import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field"
+import { AmountInput } from "@/components/form-bits"
 import { Progress } from "@/components/ui/progress"
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog"
 import { PageHeader, StatusBadge, UserAvatar } from "@/components/shared"
@@ -21,7 +22,7 @@ function AddFriendDialog() {
       <DialogTrigger asChild><Button><UserPlus /> Add friend</Button></DialogTrigger>
       <DialogContent>
         <DialogHeader><DialogTitle>Add friend</DialogTitle><DialogDescription>They'll get a request to accept.</DialogDescription></DialogHeader>
-        <div className="grid gap-2"><Label htmlFor="fe">Email or username</Label><Input id="fe" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+        <Field><FieldLabel htmlFor="fe">Email or username</FieldLabel><Input id="fe" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" /></Field>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
           <Button disabled={!email.trim()} onClick={() => { toast.success(`Request sent to ${email}`); setEmail(""); setOpen(false) }}>Send request</Button>
@@ -36,16 +37,22 @@ function EditLimitDialog({ f }) {
   const [open, setOpen] = useState(false)
   const [limit, setLimit] = useState(String(f.credit_limit_me_to_them))
   const tooLow = Number(limit) < f.exposure_me_to_them
+  const onOpenChange = (v) => { if (v) setLimit(String(f.credit_limit_me_to_them)); setOpen(v) }
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild><Button variant="outline" size="sm"><Pencil /> Trust limit</Button></DialogTrigger>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Trust limit for {userName(f.friend_id)}</DialogTitle>
           <DialogDescription>The most you're willing to have routed through you on their behalf. Set it to ₹0 to never be used as a route.</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-2"><Label htmlFor="lim">Limit (₹)</Label><Input id="lim" type="number" min="0" step="100" value={limit} onChange={(e) => setLimit(e.target.value)} aria-invalid={tooLow} /></div>
-        {tooLow && <Alert variant="destructive"><Info /><AlertTitle>Below what's already in use</AlertTitle><AlertDescription>{inr(f.exposure_me_to_them)} is already routed through you. The limit can't be lower than that.</AlertDescription></Alert>}
+        <Field data-invalid={tooLow || undefined}>
+          <FieldLabel htmlFor="lim">Limit</FieldLabel>
+          <Slider min={0} max={10000} step={100} value={[Math.min(Number(limit) || 0, 10000)]} onValueChange={([v]) => setLimit(String(v))} aria-label="Trust limit" className="my-2" />
+          <AmountInput id="lim" step="100" value={limit} onChange={(e) => setLimit(e.target.value)} aria-invalid={tooLow || undefined} />
+          {tooLow ? <FieldError>{inr(f.exposure_me_to_them)} is already routed through you. The limit can't be lower than that.</FieldError>
+            : <FieldDescription>{inr(f.exposure_me_to_them)} of it is in use right now.</FieldDescription>}
+        </Field>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
           <Button disabled={tooLow || limit === ""} onClick={() => {

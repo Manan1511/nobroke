@@ -23,23 +23,35 @@ shadcn/ui-compatible setup: `components.json`, `@/` alias -> `src/`, shadcn colo
 Icons: lucide-react. Toasts: sonner.
 
 ## Layout
-- `src/App.jsx`: shell (sidebar, header, simple state-based page switching)
-- `src/pages/`: Dashboard, Groups, Expenses, Balances, SettleUp, PayRules, Recurring, Friends, Profile
-- `src/components/ui/`: basic placeholder components with the SAME names and exports as shadcn
-- `src/components/shared.jsx`: PageHeader, UserAvatar, AvatarStack, StatusBadge, label()
+- `src/App.jsx`: shell (shadcn Sidebar + header with Ctrl+K search, dark-mode toggle, account menu; state-based page switching)
+- `src/components/app-sidebar.jsx`: sidebar (collapses to icons, Ctrl+B; sheet on phones; counters on sections)
+- `src/lib/nav.js`: the list of sections + each icon's animation class (used by sidebar, page headers, search)
+- `src/pages/`: Dashboard (stat cards, "Who owes whom" chart), Groups, Expenses (sortable data table),
+  Balances, SettleUp, PayRules, Recurring, Friends, Profile
+- `src/components/ui/`: official shadcn components (added with `npx shadcn@latest add`)
+- `src/components/form-bits.jsx`: AmountInput (₹ input group), SplitModeToggle, DatePicker, PeoplePicker
+  (combobox), SimpleSelect, PersonHover (hover card with balance + trust limit)
+- `src/components/shared.jsx`: PageHeader (animated section icon), UserAvatar, AvatarStack, StatusBadge, label()
 - `src/lib/api.js`: mock API contract (canned responses); backend team replaces with fetch()
 - `src/lib/store.jsx`: in-memory state for mock data
 - `src/data/mock.js`: mock data shaped like the PRD tables
 
-## Current goal
-Replace placeholder components in `src/components/ui/` with real shadcn ones, one at a time:
-`npx shadcn@latest add <name> --overwrite`
-Do the placeholders first: dialog, alert-dialog, sheet, dropdown-menu, tabs, tooltip, accordion.
-When swapping, keep pages working (shadcn Dialog/AlertDialog/Sheet/DropdownMenu/Tabs accept the same
-props used here: open/onOpenChange, asChild triggers, value/onValueChange). Delete `src/lib/overlay.jsx`
-once nothing imports it. Run `npm run build` after each swap to check nothing broke.
+## Theme
+Colours live in `src/index.css`: teal-green primary, soft mint background, meaning colours
+`positive` (owed to you), `negative` (you owe), `warning` (open), `info` (in progress), each with a `-soft`
+tint; `--chart-positive/negative` are a colour-blind-checked pair for the balance chart. Dark mode = `.dark`
+class on <html> (toggle in App.jsx, remembered in localStorage).
+
+## Adding shadcn components (gotchas)
+- `npx shadcn@latest add <name> --yes --overwrite` writes `import { cn } from "cn"` and installs an unrelated
+  npm package `cn`. After every add: replace `from "cn"` with `from "@/lib/utils"` in src and `npm uninstall cn`.
+- It also adds neutral `--sidebar-*` / colour vars to index.css: re-tint them to the NoBroke palette.
+- Data Table uses `@tanstack/react-table` v8 (v9 has a different API).
+- After installing packages, restart the dev server; delete `node_modules/.vite` if the browser shows
+  "Invalid hook call" or 504 "Outdated Optimize Dep" (stale cache).
 
 ## Rules
 - Keep money values as numbers formatted with `inr()` from `src/lib/utils.js`; no money math beyond display/form validation.
 - User-facing copy: plain, sentence case, from the user's point of view.
 - Don't add a backend or database to this repo.
+- Run `npm run build` after changes to check nothing broke.

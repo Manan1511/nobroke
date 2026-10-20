@@ -1,64 +1,91 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Plus, Info, CalendarClock, Repeat } from "lucide-react"
 import { toast } from "sonner"
+import { format, parseISO } from "date-fns"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter, CardAction } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "@/components/ui/empty"
 import { PageHeader, AvatarStack, label } from "@/components/shared"
+import { AmountInput, DatePicker, PeoplePicker, SimpleSelect, SplitModeToggle } from "@/components/form-bits"
 import { useStore, newId } from "@/lib/store"
 import { inr } from "@/lib/utils"
 
 function NewBillDialog() {
   const { groups, userName, update, me } = useStore()
   const [open, setOpen] = useState(false)
-  const [f, setF] = useState({ group_id: groups[0]?.group_id ?? "", title: "", total_amount: "", paid_by: me, split_mode: "EQUAL", frequency: "MONTHLY", next_run_date: "" })
+  const blank = () => ({ group_id: groups[0]?.group_id ?? "", title: "", total_amount: "", paid_by: me, split_mode: "EQUAL", frequency: "MONTHLY", next_run_date: "" })
+  const [f, setF] = useState(blank)
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e?.target ? e.target.value : e }))
   const group = groups.find((g) => g.group_id === f.group_id)
-  const tooFewForIncome = f.split_mode === "INCOME_RATIO" && (group?.members.length ?? 0) < 3
-  const ok = f.title.trim() && Number(f.total_amount) > 0 && f.next_run_date && !tooFewForIncome
+  const [people, setPeople] = useState(group?.members ?? [])
+  const [exact, setExact] = useState({})
+  useEffect(() => {
+    setPeople(group?.members ?? []); setExact({})
+    if (group && !group.members.includes(f.paid_by)) setF((x) => ({ ...x, paid_by: group.members.includes(me) ? me : group.members[0] }))
+  }, [f.group_id])
+
+  // Form checks only: income splits need 3+ people; exact shares must add up to the bill.
+  const tooFewForIncome = f.split_mode === "INCOME_RATIO" && people.length < 3
+  const exactSum = people.reduce((s, id) => s + (Number(exact[id]) || 0), 0)
+  const exactMismatch = f.split_mode === "EXACT" && Number(f.total_amount) > 0 && Math.abs(exactSum - Number(f.total_amount)) > 0.001
+  const ok = f.title.trim() && Number(f.total_amount) > 0 && f.next_run_date && people.length > 0 && !tooFewForIncome && !exactMismatch
 
   const save = () => {
-    update("recurring", (r) => [...r, { ...f, template_id: newId("t"), total_amount: Number(f.total_amount), is_active: true, participants: group.members }])
-    toast.success(`${f.title} will be billed ${label(f.frequency).toLowerCase()}`)
-    setOpen(false)
+    update("recurring", (r) => [...r, { ...f, title: f.title.trim(), template_id: newId("t"), total_amount: Number(f.total_amount), is_active: true, participants: people, ...(f.split_mode === "EXACT" && { fixed_shares: exact }) }])
+    toast.success(`${f.title.trim()} will be billed ${label(f.frequency).toLowerCase()}`)
+    setF(blank()); setOpen(false)
   }
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild><Button><Plus /> New recurring bill</Button></DialogTrigger>
-      <DialogContent>
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>New recurring bill</DialogTitle>
           <DialogDescription>Set it up once. It's split and added to balances on every billing date.</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="grid gap-2"><Label htmlFor="rg">Group</Label>
-            <NativeSelect id="rg" value={f.group_id} onChange={set("group_id")}>{groups.map((g) => <NativeSelectOption key={g.group_id} value={g.group_id}>{g.group_name}</NativeSelectOption>)}</NativeSelect></div>
-          <div className="grid gap-2"><Label htmlFor="rp">Paid by</Label>
-            <NativeSelect id="rp" value={f.paid_by} onChange={set("paid_by")}>{group?.members.map((id) => <NativeSelectOption key={id} value={id}>{userName(id)}</NativeSelectOption>)}</NativeSelect></div>
-          <div className="grid gap-2"><Label htmlFor="rt">Bill name</Label><Input id="rt" value={f.title} onChange={set("title")} placeholder="Rent, Wi-Fi, Spotify…" /></div>
-          <div className="grid gap-2"><Label htmlFor="ra">Amount (₹)</Label><Input id="ra" type="number" min="0" step="0.01" value={f.total_amount} onChange={set("total_amount")} /></div>
-          <div className="grid gap-2"><Label htmlFor="rf">Repeats</Label>
-            <NativeSelect id="rf" value={f.frequency} onChange={set("frequency")}>{["WEEKLY", "MONTHLY", "YEARLY"].map((x) => <NativeSelectOption key={x} value={x}>{label(x)}</NativeSelectOption>)}</NativeSelect></div>
-          <div className="grid gap-2"><Label htmlFor="rd">First billing date</Label><Input id="rd" type="date" value={f.next_run_date} onChange={set("next_run_date")} /></div>
-        </div>
-        <div className="grid gap-3"><Label>Split</Label>
-          <RadioGroup value={f.split_mode} onValueChange={set("split_mode")} className="sm:grid-cols-3">
-            {["EQUAL", "EXACT", "INCOME_RATIO"].map((m) => <Label key={m} className="rounded-md border p-3 font-normal"><RadioGroupItem value={m} /> {label(m)}</Label>)}
-          </RadioGroup>
-        </div>
-        {tooFewForIncome && (
-          <Alert variant="destructive"><Info /><AlertTitle>Add at least 3 people</AlertTitle><AlertDescription>Income splits need 3 or more people so nobody's income can be worked out.</AlertDescription></Alert>
-        )}
-        <Alert><CalendarClock /><AlertTitle>Billed once per date</AlertTitle><AlertDescription>Each billing date is charged only once, even if the scheduler runs twice.</AlertDescription></Alert>
+        <FieldGroup>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field><FieldLabel htmlFor="rg">Group</FieldLabel>
+              <SimpleSelect id="rg" value={f.group_id} onValueChange={set("group_id")} options={groups.map((g) => ({ value: g.group_id, label: g.group_name }))} /></Field>
+            <Field><FieldLabel htmlFor="rp">Paid by</FieldLabel>
+              <SimpleSelect id="rp" value={f.paid_by} onValueChange={set("paid_by")} options={(group?.members ?? []).map((id) => ({ value: id, label: userName(id) }))} /></Field>
+            <Field><FieldLabel htmlFor="rt">Bill name</FieldLabel><Input id="rt" value={f.title} onChange={set("title")} placeholder="Rent, Wi-Fi, Spotify…" /></Field>
+            <Field><FieldLabel htmlFor="ra">Amount</FieldLabel><AmountInput id="ra" value={f.total_amount} onChange={set("total_amount")} /></Field>
+            <Field><FieldLabel htmlFor="rf">Repeats</FieldLabel>
+              <SimpleSelect id="rf" value={f.frequency} onValueChange={set("frequency")} options={["WEEKLY", "MONTHLY", "YEARLY"].map((x) => ({ value: x, label: label(x) }))} /></Field>
+            <Field><FieldLabel htmlFor="rd">First billing date</FieldLabel><DatePicker id="rd" value={f.next_run_date} onChange={set("next_run_date")} /></Field>
+          </div>
+          <Field><FieldLabel>Split</FieldLabel><SplitModeToggle value={f.split_mode} onValueChange={set("split_mode")} /></Field>
+          <Field>
+            <FieldLabel>Split between</FieldLabel>
+            <FieldDescription>Everyone in the group is included unless you remove them.</FieldDescription>
+            <PeoplePicker options={group?.members ?? []} value={people} onChange={setPeople} placeholder="Choose people" />
+          </Field>
+          {f.split_mode === "EXACT" && people.length > 0 && (
+            <div className="grid gap-2">
+              {people.map((id) => (
+                <div key={id} className="flex items-center justify-between gap-3 text-sm">
+                  <span>{userName(id)}</span>
+                  <AmountInput className="w-32" aria-label={`Share for ${userName(id)}`} value={exact[id] ?? ""} onChange={(e) => setExact((x) => ({ ...x, [id]: e.target.value }))} />
+                </div>
+              ))}
+            </div>
+          )}
+          {exactMismatch && (
+            <Alert variant="destructive"><Info /><AlertTitle>Amounts don't add up</AlertTitle><AlertDescription>The shares total {inr(exactSum)}, but the bill is {inr(f.total_amount)}.</AlertDescription></Alert>
+          )}
+          {tooFewForIncome && (
+            <Alert variant="destructive"><Info /><AlertTitle>Add at least 3 people</AlertTitle><AlertDescription>Income splits need 3 or more people so nobody's income can be worked out.</AlertDescription></Alert>
+          )}
+          <Alert className="border-info/25 bg-info-soft [&>svg]:text-info"><CalendarClock /><AlertTitle>Billed once per date</AlertTitle><AlertDescription>Each billing date is charged only once, even if the scheduler runs twice.</AlertDescription></Alert>
+        </FieldGroup>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
           <Button disabled={!ok} onClick={save}>Create bill</Button>
@@ -96,7 +123,7 @@ export default function Recurring() {
                 <div className="flex flex-wrap gap-2"><Badge variant="secondary">{label(t.frequency)}</Badge><Badge variant="outline">{label(t.split_mode)}</Badge></div>
                 <AvatarStack ids={t.participants} />
               </CardContent>
-              <CardFooter className="text-sm text-muted-foreground">{t.is_active ? `Next bill: ${t.next_run_date}` : "Paused"}</CardFooter>
+              <CardFooter className="text-sm text-muted-foreground">{t.is_active ? `Next bill: ${format(parseISO(t.next_run_date), "d MMM yyyy")}` : "Paused"}</CardFooter>
             </Card>
           ))}
         </div>

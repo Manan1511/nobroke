@@ -8,8 +8,9 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { PageHeader, StatusBadge, UserAvatar } from "@/components/shared"
+import { PersonHover } from "@/components/form-bits"
 import { useStore } from "@/lib/store"
-import { inr } from "@/lib/utils"
+import { cn, inr } from "@/lib/utils"
 
 function ObligationTable({ rows, direction, onNavigate }) {
   const { userName } = useStore()
@@ -27,11 +28,11 @@ function ObligationTable({ rows, direction, onNavigate }) {
           const paidPct = ((o.original_amount - o.remaining_amount) / o.original_amount) * 100
           return (
             <TableRow key={o.obligation_id}>
-              <TableCell><div className="flex items-center gap-2"><UserAvatar id={other} />{userName(other)}</div></TableCell>
+              <TableCell><div className="flex items-center gap-2"><UserAvatar id={other} /><PersonHover id={other} /></div></TableCell>
               <TableCell className="text-muted-foreground">{o.source}</TableCell>
               <TableCell><StatusBadge status={o.status} /></TableCell>
               <TableCell><Progress value={paidPct} aria-label="Paid so far" /></TableCell>
-              <TableCell className="text-right tabular-nums">{inr(o.remaining_amount)}</TableCell>
+              <TableCell className={cn("text-right font-medium tabular-nums", o.status === "SETTLED" ? "text-muted-foreground" : direction === "owe" ? "text-negative" : "text-positive")}>{inr(o.remaining_amount)}</TableCell>
               <TableCell className="text-right">
                 {o.status !== "SETTLED" && (direction === "owe" ? (
                   <div className="flex justify-end gap-1">

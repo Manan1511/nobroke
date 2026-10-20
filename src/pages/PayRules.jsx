@@ -3,9 +3,7 @@ import { Plus, Info, RefreshCw, Workflow, X } from "lucide-react"
 import { toast } from "sonner"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { Spinner } from "@/components/ui/spinner"
 import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog"
@@ -13,6 +11,7 @@ import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, A
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "@/components/ui/empty"
 import { PageHeader, StatusBadge } from "@/components/shared"
+import { AmountInput, SimpleSelect } from "@/components/form-bits"
 import { useStore, newId } from "@/lib/store"
 import { previewRule } from "@/lib/api"
 import { inr } from "@/lib/utils"
@@ -43,6 +42,15 @@ function NewRuleDialog() {
     previewRule(trigger, target).then((p) => { setPreview(p); setChecking(false) })
   }, [trigger, target])
 
+  // Keep the choices valid when the dialog opens (debts may have been settled since).
+  useEffect(() => {
+    if (!open) return
+    setTrigger((t) => (incoming.some((o) => o.obligation_id === t) ? t : incoming[0]?.obligation_id ?? ""))
+    setTarget((t) => (outgoing.some((o) => o.obligation_id === t) ? t : outgoing[0]?.obligation_id ?? ""))
+  }, [open])
+  const targetOb = outgoing.find((o) => o.obligation_id === target)
+  const tooMuch = !!targetOb && Number(max) > targetOb.remaining_amount
+
   const save = () => {
     update("rules", (r) => [{ rule_id: newId("r"), trigger_receivable_id: trigger, target_payable_id: target, max_cascade_amount: Number(max), status: "ARMED", created_at: new Date().toISOString().slice(0, 10) }, ...r])
     toast.success(preview?.creates_loop ? "Rule saved and loop cleared" : "Rule saved", { description: preview?.creates_loop ? `${inr(preview.loop_amount)} was cancelled out right away.` : "It'll run when the money comes in." })
@@ -57,22 +65,24 @@ function NewRuleDialog() {
           <DialogTitle>Pay when paid</DialogTitle>
           <DialogDescription>When someone pays you, pass that money straight on to someone you owe.</DialogDescription>
         </DialogHeader>
-        <div className="grid gap-2">
-          <Label htmlFor="trig">When this is paid to me</Label>
-          <NativeSelect id="trig" value={trigger} onChange={(e) => setTrigger(e.target.value)}>
-            {incoming.map((o) => <NativeSelectOption key={o.obligation_id} value={o.obligation_id}>{obLabel(o.obligation_id)}</NativeSelectOption>)}
-          </NativeSelect>
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="targ">Pay this debt</Label>
-          <NativeSelect id="targ" value={target} onChange={(e) => setTarget(e.target.value)}>
-            {outgoing.map((o) => <NativeSelectOption key={o.obligation_id} value={o.obligation_id}>{obLabel(o.obligation_id)}</NativeSelectOption>)}
-          </NativeSelect>
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="max">Pass on at most (₹)</Label>
-          <Input id="max" type="number" min="0" step="0.01" value={max} onChange={(e) => setMax(e.target.value)} />
-        </div>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="trig">When this is paid to me</FieldLabel>
+            <SimpleSelect id="trig" value={trigger} onValueChange={setTrigger} placeholder="Nobody owes you right now"
+              options={incoming.map((o) => ({ value: o.obligation_id, label: obLabel(o.obligation_id) }))} />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="targ">Pay this debt</FieldLabel>
+            <SimpleSelect id="targ" value={target} onValueChange={setTarget} placeholder="You don't owe anyone right now"
+              options={outgoing.map((o) => ({ value: o.obligation_id, label: obLabel(o.obligation_id) }))} />
+          </Field>
+          <Field data-invalid={tooMuch || undefined}>
+            <FieldLabel htmlFor="max">Pass on at most</FieldLabel>
+            <AmountInput id="max" value={max} onChange={(e) => setMax(e.target.value)} aria-invalid={tooMuch || undefined} />
+            {tooMuch ? <FieldError>You only owe {inr(targetOb.remaining_amount)} on this debt.</FieldError>
+              : targetOb && <FieldDescription>Up to {inr(targetOb.remaining_amount)}, what's left on this debt.</FieldDescription>}
+          </Field>
+        </FieldGroup>
 
         {checking && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Checking for loops…</div>}
         {!checking && preview?.creates_loop && (
@@ -90,7 +100,7 @@ function NewRuleDialog() {
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button disabled={!trigger || !target || !(Number(max) > 0) || checking} onClick={save}>Save rule</Button>
+          <Button disabled={!trigger || !target || !(Number(max) > 0) || tooMuch || checking} onClick={save}>Save rule</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
