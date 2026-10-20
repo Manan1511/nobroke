@@ -1,0 +1,270 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Same token names shadcn/ui uses, so its components drop straight in.
+   NoBroke palette, matched to the landing page: cream paper (#F2EEE6), ink (#10100F) and the
+   tube orange (#FF4A1C) as the accent, plus muted meaning colours (positive = owed to you,
+   negative = you owe, warning = open, info = in progress). Each sidebar section has its own colour (--nav-*). */
+:root {
+  --radius: 1rem;
+  --background: #f2eee6;
+  --foreground: #10100f;
+  --card: #fbf9f5;
+  --card-foreground: #10100f;
+  --popover: #fbf9f5;
+  --popover-foreground: #10100f;
+  --primary: #10100f;
+  --primary-foreground: #f2eee6;
+  --secondary: #e9e3d8;
+  --secondary-foreground: #2a2723;
+  --muted: #ebe6dc;
+  --muted-foreground: #6b655c;
+  --accent: #ebe4d8;
+  --accent-foreground: #10100f;
+  --destructive: #c4381a;
+  --border: #ded7ca;
+  --input: #d6cec0;
+  --ring: #ff4a1c;
+  --brand: #ff4a1c;
+  --brand-soft: #fde3d9;
+  --sidebar: #ebe6dc;
+
+  --positive: #1d7f52;
+  --positive-soft: #dcecdf;
+  --negative: #b93a28;
+  --negative-soft: #f6e0d8;
+  --warning: #93600a;
+  --warning-soft: #f4e7c8;
+  --info: #2a67a6;
+  --info-soft: #dfe7f0;
+  --sidebar-foreground: #2a2723;
+  --sidebar-primary: #ff4a1c;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e1d9cb;
+  --sidebar-accent-foreground: #10100f;
+  --sidebar-border: #ddd5c7;
+  --sidebar-ring: #ff4a1c;
+  /* chart-1..3 (orange, blue, gold) checked for colour-blind separation on the card surface */
+  --chart-1: #e2521f;
+  --chart-2: #3a7fd0;
+  --chart-3: #c99a14;
+  --chart-4: #1d7f52;
+  --chart-5: #8a5cc4;
+  /* Balance chart pair, checked for colour-blind separation (bars also differ by direction + signed labels). */
+  --chart-positive: #006f4e;
+  --chart-negative: #e06065;
+
+  /* One colour per section icon (from the landing page's orange, blue, gold and mint, plus a few more). */
+  --nav-dashboard: #e8461b;
+  --nav-groups: #2477c2;
+  --nav-expenses: #b47a00;
+  --nav-balances: #1d8a5a;
+  --nav-settle: #7457d6;
+  --nav-rules: #0b8585;
+  --nav-recurring: #cc3f78;
+  --nav-friends: #d23b3b;
+  --nav-profile: #5b6474;
+}
+
+.dark {
+  --background: #12110f;
+  --foreground: #f2eee6;
+  --card: #1b1916;
+  --card-foreground: #f2eee6;
+  --popover: #1b1916;
+  --popover-foreground: #f2eee6;
+  --primary: #f2eee6;
+  --primary-foreground: #12110f;
+  --secondary: #26231f;
+  --secondary-foreground: #e9e3d8;
+  --muted: #23201c;
+  --muted-foreground: #a59e92;
+  --accent: #2a2622;
+  --accent-foreground: #f2eee6;
+  --destructive: #f0785c;
+  --border: rgb(242 238 230 / 10%);
+  --input: rgb(242 238 230 / 15%);
+  --ring: #ff6a3d;
+  --brand: #ff6a3d;
+  --brand-soft: #3a2018;
+  --sidebar: #171513;
+
+  --positive: #5cc795;
+  --positive-soft: #1b3226;
+  --negative: #f08a74;
+  --negative-soft: #3a221c;
+  --warning: #e6b452;
+  --warning-soft: #352b16;
+  --info: #7cb2e8;
+  --info-soft: #1b2a3a;
+  --sidebar-foreground: #ddd6ca;
+  --sidebar-primary: #ff6a3d;
+  --sidebar-primary-foreground: #12110f;
+  --sidebar-accent: #27231f;
+  --sidebar-accent-foreground: #f2eee6;
+  --sidebar-border: rgb(242 238 230 / 8%);
+  --sidebar-ring: #ff6a3d;
+  --chart-1: #de602f;
+  --chart-2: #4c88d3;
+  --chart-3: #bb881a;
+  --chart-4: #3fae78;
+  --chart-5: #a07ad8;
+  --chart-positive: #24ab7e;
+  --chart-negative: #b23641;
+
+  --nav-dashboard: #ff7a50;
+  --nav-groups: #6aaef0;
+  --nav-expenses: #f0c04a;
+  --nav-balances: #5cc795;
+  --nav-settle: #a891f0;
+  --nav-rules: #4cc4c4;
+  --nav-recurring: #f07aa8;
+  --nav-friends: #f27a7a;
+  --nav-profile: #a3abba;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Anton', Impact, 'Arial Narrow', sans-serif;
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+}
+
+/* Section icons: each one has its own motion. Plays on sidebar hover, when a page opens, and in the page header. */
+@theme {
+  --animate-pop: pop 0.5s ease-out;
+  --animate-wiggle: wiggle 0.6s ease-in-out;
+  --animate-print: print 0.6s ease-in-out;
+  --animate-tilt: tilt 0.8s ease-in-out;
+  --animate-swap: swap 0.6s ease-in-out;
+  --animate-flow: flow 0.7s ease-in-out;
+  --animate-spin-once: spin-once 0.7s ease-in-out;
+  --animate-beat: beat 0.8s ease-in-out;
+  --animate-gear: gear 0.8s ease-in-out;
+  --animate-wobble: wobble 0.9s ease-in-out;
+
+  @keyframes pop { 0%, 100% { transform: scale(1); } 40% { transform: scale(1.3); } 70% { transform: scale(0.9); } }
+  @keyframes wiggle { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-12deg); } 75% { transform: rotate(12deg); } }
+  @keyframes print { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(-3px); } 70% { transform: translateY(2px); } }
+  @keyframes tilt { 0%, 100% { transform: rotate(0); } 25% { transform: rotate(-14deg); } 60% { transform: rotate(10deg); } 85% { transform: rotate(-4deg); } }
+  @keyframes swap { 0%, 100% { transform: translateX(0); } 30% { transform: translateX(-3px); } 70% { transform: translateX(3px); } }
+  @keyframes flow { 0%, 100% { transform: translate(0, 0); } 33% { transform: translate(2px, -2px); } 66% { transform: translate(-2px, 2px); } }
+  @keyframes spin-once { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+  @keyframes beat { 0%, 100% { transform: scale(1); } 20% { transform: scale(1.25); } 40% { transform: scale(1); } 60% { transform: scale(1.18); } }
+  @keyframes gear { from { transform: rotate(0); } to { transform: rotate(180deg); } }
+  @keyframes wobble { 0%, 100% { transform: rotate(0) translateY(0); } 30% { transform: rotate(-10deg) translateY(-2px); } 60% { transform: rotate(6deg); } }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .section-icon { animation: none !important; }
+}
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  body { @apply bg-background text-foreground antialiased; }
+}
+
+/* Outside any layer on purpose: a host page's own reset (e.g. the shared-link viewer) must not
+   override the page background, text colour or font, or dark-mode text ends up on the wrong ground. */
+:root { color-scheme: light; }
+:root.dark { color-scheme: dark; }
+html, body { background-color: var(--background); color: var(--foreground); font-family: var(--font-sans); }
+body { overflow-x: clip; }
+
+/* ---------- Spatial UI: frosted glass panels floating over soft ambient light ----------
+   Light comes from the landing page's palette (tube orange, mint coin, wallet blue, smiley gold). */
+:root {
+  --glass: color-mix(in oklab, var(--card) 64%, transparent);
+  --glass-edge: rgb(255 255 255 / 0.75);
+  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.85), 0 1px 2px rgb(60 40 20 / 0.06), 0 14px 34px -14px rgb(60 40 20 / 0.22);
+  --glass-shadow-hover: inset 0 1px 0 rgb(255 255 255 / 0.9), 0 2px 4px rgb(60 40 20 / 0.06), 0 22px 48px -16px rgb(60 40 20 / 0.28);
+  --ambient-1: rgb(255 74 28 / 0.20);
+  --ambient-2: rgb(72 201 141 / 0.18);
+  --ambient-3: rgb(41 151 218 / 0.16);
+  --ambient-4: rgb(255 207 54 / 0.18);
+}
+.dark {
+  --glass: color-mix(in oklab, var(--card) 70%, transparent);
+  --glass-edge: rgb(255 255 255 / 0.08);
+  --glass-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06), 0 1px 2px rgb(0 0 0 / 0.4), 0 18px 40px -18px rgb(0 0 0 / 0.7);
+  --glass-shadow-hover: inset 0 1px 0 rgb(255 255 255 / 0.08), 0 2px 4px rgb(0 0 0 / 0.4), 0 26px 56px -18px rgb(0 0 0 / 0.8);
+  --ambient-1: rgb(255 106 61 / 0.16);
+  --ambient-2: rgb(92 199 149 / 0.12);
+  --ambient-3: rgb(106 174 240 / 0.12);
+  --ambient-4: rgb(240 192 74 / 0.10);
+}
+.spatial-panel {
+  background: var(--glass);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  backdrop-filter: blur(22px) saturate(1.5);
+}
+/* the floating sidebar becomes a glass slab too */
+[data-variant="floating"] [data-sidebar="sidebar"] {
+  border-radius: 1.75rem;
+  border-color: var(--glass-edge);
+  background: var(--glass);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: blur(22px) saturate(1.5);
+  backdrop-filter: blur(22px) saturate(1.5);
+}
+.spatial-backdrop { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.spatial-backdrop span { position: absolute; border-radius: 9999px; filter: blur(80px); animation: drift 38s ease-in-out infinite alternate; }
+.spatial-backdrop span:nth-child(1) { width: 46vw; height: 46vw; left: -12vw; top: -14vw; background: var(--ambient-1); }
+.spatial-backdrop span:nth-child(2) { width: 38vw; height: 38vw; right: -10vw; top: 18vh; background: var(--ambient-3); animation-delay: -9s; }
+.spatial-backdrop span:nth-child(3) { width: 40vw; height: 40vw; left: 22vw; bottom: -18vw; background: var(--ambient-2); animation-delay: -17s; }
+.spatial-backdrop span:nth-child(4) { width: 26vw; height: 26vw; right: 18vw; bottom: 6vh; background: var(--ambient-4); animation-delay: -26s; }
+@keyframes drift { to { transform: translate3d(4vw, 3vh, 0) scale(1.08); } }
+[data-slot="sidebar-wrapper"] > :not(.spatial-backdrop) { position: relative; z-index: 1; }
+@media (prefers-reduced-motion: reduce) { .spatial-backdrop span { animation: none; } }
+
+/* Page entrance (components/motion.tsx PageReveal): each block and card rises in after the one before. */
+.nb-rise { animation: nb-rise 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: var(--nb-delay, 0ms); }
+@keyframes nb-rise { from { opacity: 0; transform: translateY(26px) scale(0.97); filter: blur(8px); } }
+@media (prefers-reduced-motion: reduce) { .nb-rise { animation: none; } }
