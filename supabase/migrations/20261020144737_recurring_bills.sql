@@ -226,6 +226,7 @@ AS $$
   SELECT EXISTS (
     SELECT 1 FROM app.recurring_templates AS t
     WHERE t.template_id = p_template_id
+      AND private.is_active_member(t.group_id, p_user_id)
       AND (t.created_by = p_user_id OR t.paid_by = p_user_id
         OR private.is_group_owner(t.group_id, p_user_id))
   )
@@ -792,8 +793,8 @@ $$;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA api FROM PUBLIC, anon;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA api TO authenticated;
 
--- The extension exists on Supabase hosted instances or in local Supabase. The
--- pg_cron stub in the fast PGlite test harness keeps unit tests self-contained.
+-- Install pg_cron support, but leave scheduling disabled until Person 3's
+-- production hooks and hosted smoke tests have passed.
 DO $cron_setup$
 BEGIN
   IF pg_catalog.to_regprocedure('cron.schedule(text,text,text)') IS NULL THEN
@@ -804,10 +805,5 @@ BEGIN
   END IF;
   GRANT USAGE ON SCHEMA cron TO postgres;
   GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA cron TO postgres;
-  PERFORM cron.schedule(
-    'nobroke-recurring-bills',
-    '*/15 * * * *',
-    'SELECT private.process_due_recurring_bills(50)'
-  );
 END;
 $cron_setup$;

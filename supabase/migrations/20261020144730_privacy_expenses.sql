@@ -363,6 +363,23 @@ ALTER FUNCTION private.calculate_expense_shares(uuid, numeric, text, uuid[], jso
 REVOKE ALL ON FUNCTION private.calculate_expense_shares(uuid, numeric, text, uuid[], jsonb)
   FROM PUBLIC, anon, authenticated;
 
+CREATE FUNCTION private.validate_expense_amount(p_total_amount numeric)
+RETURNS numeric
+LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+BEGIN
+  IF p_total_amount IS NULL OR p_total_amount <= 0
+     OR pg_catalog.scale(p_total_amount) > 2
+     OR p_total_amount > 9999999999.99 THEN
+    RAISE EXCEPTION 'invalid_expense_amount' USING ERRCODE = 'P0001';
+  END IF;
+  RETURN p_total_amount;
+END;
+$function$;
+ALTER FUNCTION private.validate_expense_amount(numeric) OWNER TO nobroke_executor;
+REVOKE ALL ON FUNCTION private.validate_expense_amount(numeric) FROM PUBLIC, anon, authenticated;
+
 CREATE FUNCTION private.expense_request_hash(
   p_group_id uuid,
   p_title text,
@@ -382,7 +399,7 @@ AS $$
     pg_catalog.convert_to(pg_catalog.jsonb_build_object(
       'group_id', p_group_id::text,
       'title', pg_catalog.btrim(p_title),
-      'total_amount', p_total_amount::numeric(12,2)::text,
+      'total_amount', private.validate_expense_amount(p_total_amount)::numeric(12,2)::text,
       'split_mode', pg_catalog.upper(p_split_mode),
       'paid_by', p_paid_by::text,
       'participants', COALESCE((

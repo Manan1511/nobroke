@@ -56,8 +56,8 @@ SELECT extensions.ok(
   'the Data API exposes the versioned api schema'
 );
 SELECT extensions.ok(
-  EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'nobroke-recurring-bills'),
-  'recurring worker is scheduled'
+  NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'nobroke-recurring-bills'),
+  'recurring worker waits for Person 3 hosted integration'
 );
 
 SELECT * FROM extensions.finish();

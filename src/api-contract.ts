@@ -78,14 +78,13 @@ export type BillingRun = {
   finished_at: string | null;
 };
 
-export interface ExactShareInput {
-  participant_id: UUID;
-  share_amount: Money;
-}
+/** EXACT shares are a JSON object keyed by participant UUID. */
+export type ExactShares = Record<UUID, Money>;
 
 export type ApiErrorCode =
   | "authentication_required"
   | "group_access_denied"
+  | "invalid_expense_amount"
   | "income_setup_required"
   | "income_split_requires_three_participants"
   | "idempotency_conflict"

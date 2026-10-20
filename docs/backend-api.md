@@ -61,7 +61,7 @@ Exact salary input is converted immediately to a private band and discarded. No 
 | `void_expense` | `p_expense_id`, `p_reason` | `{ expense_id, status: 'VOIDED' }` |
 | `replace_expense` | `p_expense_id`, `p_reason`, then create-expense arguments | `{ expense_id, replaces_expense_id }` |
 
-`p_split_mode` accepts `EQUAL`, `EXACT`, or `INCOME_RATIO`. Exact shares are JSON objects shaped as `[{"participant_id":"…","share_amount":"12.34"}]`. Amounts must be positive INR values with at most two fractional digits; the payer may be outside the participant list. Equal and income splits distribute leftover paise with deterministic largest-remainder rounding, UUID order breaking ties.
+`p_split_mode` accepts `EQUAL`, `EXACT`, or `INCOME_RATIO`. Exact shares are JSON objects keyed by participant UUID, with decimal-string values, for example `{ "11111111-1111-4111-8111-111111111111": "33.34", "22222222-2222-4222-8222-222222222222": "33.33", "33333333-3333-4333-8333-333333333333": "33.33" }`. Keys must match the selected participants, and shares must total the expense amount. Amounts must be positive INR values with at most two fractional digits; the payer may be outside the participant list. Equal and income splits distribute leftover paise with deterministic largest-remainder rounding, UUID order breaking ties.
 
 Generate a fresh UUID for `p_request_id` per new write and reuse it only for retries of the same payload. Identical retries return the original expense; a different payload under the same ID fails with `idempotency_conflict`. Posted expense rows and splits are immutable. Only the logger or group owner may void; void/replace is rejected if Person 3 reports settlement or payment-rule involvement. Corrections preserve the original record and reason.
 
@@ -77,10 +77,10 @@ Generate a fresh UUID for `p_request_id` per new write and reuse it only for ret
 | `get_recurring_template` | `p_template_id` | `RecurringTemplate` or `null` |
 | `list_recurring_billing_runs` | `p_template_id`, optional `p_after_run_id`, `p_limit` | `BillingRun[]` |
 
-Frequencies are `WEEKLY`, `MONTHLY`, and `YEARLY`. Dates are interpreted in `Asia/Kolkata`; month-end and leap-day schedules retain their original anchor. Changes create versions for future billing dates. A failed occurrence does not advance the cursor, and failure details use a sanitized error code.
+Frequencies are `WEEKLY`, `MONTHLY`, and `YEARLY`. Dates are interpreted in `Asia/Kolkata`; month-end and leap-day schedules retain their original anchor. Changes create versions for future billing dates. A failed occurrence does not advance the cursor, and failure details use a sanitized error code. Hosted Cron stays disabled until Person 3's production hooks are installed and expense, correction, and billing smoke tests pass. Then enable the worker once from the Supabase SQL editor with `select cron.schedule('nobroke-recurring-bills', '*/15 * * * *', 'select private.process_due_recurring_bills(50)');`.
 
 ## Errors and boundary
 
-SQL raises stable machine-readable codes such as `authentication_required`, `group_access_denied`, `income_setup_required`, `income_split_requires_three_participants`, `idempotency_conflict`, `expense_correction_forbidden`, `active_recurring_bills_block_departure`, and `financial_integration_not_ready`. Person 3 may add obligation-specific codes for blocked corrections and departures. Map the returned PostgREST error `message` to UI copy; don't display raw database details.
+SQL raises stable machine-readable codes such as `authentication_required`, `group_access_denied`, `invalid_expense_amount`, `income_setup_required`, `income_split_requires_three_participants`, `idempotency_conflict`, `expense_correction_forbidden`, `active_recurring_bills_block_departure`, and `financial_integration_not_ready`. Person 3 may add obligation-specific codes for blocked corrections and departures. Map the returned PostgREST error `message` to UI copy; don't display raw database details.
 
 Person 3 owns obligation, settlement, payment-rule and cascade semantics. Expense create/void and membership departure call internal hooks synchronously. Until those functions exist and are granted to the restricted `nobroke_executor` role, those flows fail closed and roll back. Never grant browser roles access to the `private` schema or its hooks.

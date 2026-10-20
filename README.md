@@ -34,7 +34,7 @@ Debt and settlement behavior is owned by Person 3. Expense posting, expense corr
 
 Hosted testing is for project-team email addresses. Disable public signup in Supabase Auth settings while keeping email verification and password reset enabled; add redirect URLs only for the app's actual local and hosted origins. The default email sender has low testing limits, so do not use it for public signups.
 
-The migration enables `pg_cron` and schedules `private.process_due_recurring_bills(50)` every 15 minutes. Check `app.recurring_billing_runs` and the recurring template's backlog and sanitized failure fields when diagnosing a scheduled bill.
+The migration enables `pg_cron` but leaves its worker unscheduled. After Person 3's real hooks are installed and expense, correction, and hosted billing smoke tests pass, start `private.process_due_recurring_bills(50)` every 15 minutes using the SQL statement in [the API contract](docs/backend-api.md). Check `app.recurring_billing_runs` and the recurring template's backlog and sanitized failure fields when diagnosing a scheduled bill.
 
 ## Checks
 
