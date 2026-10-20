@@ -63,7 +63,7 @@ Icons: lucide-react. Toasts: sonner. Routing: react-router v7. Landing: three 0.
   `src/components/bits/`): AnimatedContent, BlurText (root changed to <span> so it can sit in <h1>), CountUp,
   SpotlightCard, GlareHover, Magnet, ClickSpark, ShinyText. Use the wrappers in `components/motion.tsx`
   (Reveal, Money, Count, Spotlight, Glare, Magnetic) so timing/colours stay consistent; all respect reduced motion.
-  Where: ClickSpark wraps the whole app (main.tsx); Reveal = page entrance (App.tsx) + bill list; BlurText = page
+  Where: ClickSpark wraps the whole app (main.tsx); PageReveal (App.tsx, CSS .nb-rise) = every block + card of a page rises in one by one on open; Reveal = bill list; BlurText = page
   titles; Money/Count = dashboard numbers; Glare = stat cards; Spotlight = big dashboard cards; Magnetic = main
   CTAs; ShinyText = sidebar tagline + landing greeting.
 

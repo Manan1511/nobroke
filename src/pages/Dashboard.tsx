@@ -61,13 +61,13 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
       </div>
 
       <div className="grid gap-4 xl:grid-cols-12">
-        <div className="xl:col-span-8 [&>*]:h-full">{loading ? <Skeleton className="h-96 rounded-xl" /> : <SpendingChart />}</div>
-        <div className="xl:col-span-4 [&>*]:h-full">{loading ? <Skeleton className="h-96 rounded-xl" /> : <SettledRing />}</div>
+        <div className="xl:col-span-8 [&>*]:h-full"><SpendingChart /></div>
+        <div className="xl:col-span-4 [&>*]:h-full"><SettledRing /></div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-12">
-        <div className="lg:col-span-7 [&>*]:h-full">{loading ? <Skeleton className="h-72 rounded-xl" /> : <BalanceChart />}</div>
-        <div className="lg:col-span-5 [&>*]:h-full">{loading ? <Skeleton className="h-72 rounded-xl" /> : <GroupDonut />}</div>
+        <div className="lg:col-span-7 [&>*]:h-full"><BalanceChart /></div>
+        <div className="lg:col-span-5 [&>*]:h-full"><GroupDonut /></div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

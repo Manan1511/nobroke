@@ -28,7 +28,7 @@ import PayRules from "@/pages/PayRules"
 import Recurring from "@/pages/Recurring"
 import Friends from "@/pages/Friends"
 import Profile from "@/pages/Profile"
-import { Magnetic, Reveal } from "@/components/motion"
+import { Magnetic, PageReveal } from "@/components/motion"
 
 // Light / dark mode: a class on <html>. Starts from the page's host theme (data-theme on <html>, set by
 // viewers like the shared-link page), then the toggle choice saved in this browser, then the system setting.
@@ -153,7 +153,7 @@ export default function App() {
           </div>
         </header>
         <main className="mx-auto w-full max-w-6xl flex-1 space-y-6 p-4 md:p-8">
-          <Reveal key={page} className="space-y-6"><Page onNavigate={go} /></Reveal>
+          <PageReveal key={page} className="space-y-6"><Page onNavigate={go} /></PageReveal>
         </main>
       </SidebarInset>
       <CommandMenu open={searchOpen} setOpen={setSearchOpen} go={go} />

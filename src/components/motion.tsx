@@ -1,6 +1,6 @@
 // NoBroke's wrappers around the React Bits components (src/components/bits), tuned to the spatial theme.
 // Use these in pages instead of the raw components so every animation shares the same timing and colours.
-import type { ReactNode } from "react"
+import { useLayoutEffect, useRef, type ReactNode } from "react"
 import AnimatedContent from "@/components/bits/AnimatedContent"
 import CountUp from "@/components/bits/CountUp"
 import GlareHover from "@/components/bits/GlareHover"
@@ -18,6 +18,31 @@ export function Reveal({ children, className, stagger = 0.06, delay = 0 }: { chi
       {children}
     </AnimatedContent>
   )
+}
+
+/**
+ * Page entrance: the page header, any alert, then every card on the page come in one by one in reading
+ * order (rise + un-blur + slight scale). Remount it (key) to replay when a section is opened.
+ */
+export function PageReveal({ children, className }: { children: ReactNode; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el || reduced()) return
+    // Top-level blocks that aren't card grids, plus every outermost card (cards inside cards stay with their parent).
+    const cards = [...el.querySelectorAll<HTMLElement>('[data-slot="card"]')].filter((c) => !c.parentElement?.closest('[data-slot="card"]'))
+    const blocks = [...el.children].filter((c) => !c.querySelector('[data-slot="card"]') && c.getAttribute("data-slot") !== "card") as HTMLElement[]
+    const targets = [...blocks, ...cards].sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+    // CSS animation (index.css .nb-rise), delayed per element; removed when done so hover effects work again.
+    const done = (e: AnimationEvent) => { if (e.animationName === "nb-rise") (e.currentTarget as HTMLElement).classList.remove("nb-rise") }
+    targets.forEach((t, i) => {
+      t.style.setProperty("--nb-delay", `${i * 70}ms`)
+      t.classList.add("nb-rise")
+      t.addEventListener("animationend", done)
+    })
+    return () => targets.forEach((t) => { t.classList.remove("nb-rise"); t.removeEventListener("animationend", done) })
+  }, [])
+  return <div ref={ref} className={className}>{children}</div>
 }
 
 /** A rupee amount that counts up from zero. */
