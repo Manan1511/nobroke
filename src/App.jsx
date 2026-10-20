@@ -27,13 +27,35 @@ import Recurring from "@/pages/Recurring"
 import Friends from "@/pages/Friends"
 import Profile from "@/pages/Profile"
 
-// Light / dark mode: a class on <html>, remembered in this browser when storage is available.
+// Light / dark mode: a class on <html>. Starts from the page's host theme (data-theme on <html>, set by
+// viewers like the shared-link page), then the toggle choice saved in this browser, then the system setting.
+const html = document.documentElement
+const systemDark = window.matchMedia("(prefers-color-scheme: dark)")
+const savedTheme = () => { try { return localStorage.getItem("nobroke-theme") } catch { return null } }
+const startDark = () => {
+  const host = html.dataset.theme
+  if (host === "dark" || host === "light") return host === "dark"
+  const saved = savedTheme()
+  return saved ? saved === "dark" : systemDark.matches
+}
+
 function useDarkMode() {
-  const [dark, setDark] = useState(() => { try { return localStorage.getItem("nobroke-theme") === "dark" } catch { return false } })
+  const [dark, setDarkState] = useState(startDark)
+  const setDark = (next) => setDarkState((d) => {
+    const v = typeof next === "function" ? next(d) : next
+    try { localStorage.setItem("nobroke-theme", v ? "dark" : "light") } catch { /* storage blocked: fine */ }
+    return v
+  })
+  useEffect(() => { html.classList.toggle("dark", dark) }, [dark])
+  // Follow the host / system when they change (a viewer's theme switch, or the OS going dark at night).
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark)
-    try { localStorage.setItem("nobroke-theme", dark ? "dark" : "light") } catch { /* storage blocked: fine */ }
-  }, [dark])
+    const fromHost = () => { const t = html.dataset.theme; if (t === "dark" || t === "light") setDarkState(t === "dark") }
+    const fromSystem = (e) => { if (!html.dataset.theme && !savedTheme()) setDarkState(e.matches) }
+    const observer = new MutationObserver(fromHost)
+    observer.observe(html, { attributes: true, attributeFilter: ["data-theme"] })
+    systemDark.addEventListener("change", fromSystem)
+    return () => { observer.disconnect(); systemDark.removeEventListener("change", fromSystem) }
+  }, [])
   return [dark, setDark]
 }
 

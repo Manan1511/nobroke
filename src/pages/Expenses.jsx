@@ -171,7 +171,7 @@ function DeleteExpense({ expense }) {
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Keep it</AlertDialogCancel>
-          <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={() => {
+          <AlertDialogAction className="bg-destructive text-primary-foreground hover:bg-destructive/90" onClick={() => {
             update("expenses", (x) => x.filter((y) => y.expense_id !== expense.expense_id)); toast.success("Expense deleted")
           }}>Delete expense</AlertDialogAction>
         </AlertDialogFooter>

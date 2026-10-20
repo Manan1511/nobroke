@@ -135,7 +135,7 @@ export default function Groups() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Stay</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={() => {
+            <AlertDialogAction className="bg-destructive text-primary-foreground hover:bg-destructive/90" onClick={() => {
               update("groups", (gs) => gs.filter((x) => x.group_id !== leaving.group_id)); toast.success(`Left ${leaving.group_name}`)
             }}>Leave group</AlertDialogAction>
           </AlertDialogFooter>

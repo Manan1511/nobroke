@@ -27,7 +27,7 @@ export function NotificationsMenu({ onNavigate }) {
         <Button variant="ghost" size="icon" className="relative" aria-label={unread ? `Notifications, ${unread} unread` : "Notifications"}>
           <Bell />
           {unread > 0 && (
-            <span className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-full bg-negative text-[10px] font-semibold text-white">{unread}</span>
+            <span className="absolute top-1 right-1 flex size-4 items-center justify-center rounded-full bg-negative text-[10px] font-semibold text-primary-foreground">{unread}</span>
           )}
         </Button>
       </PopoverTrigger>

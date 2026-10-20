@@ -89,7 +89,7 @@ export default function Friends() {
                         <AlertDialogHeader><AlertDialogTitle>Block {userName(f.friend_id)}?</AlertDialogTitle>
                           <AlertDialogDescription>No new debts will be routed between you. Existing balances stay until settled.</AlertDialogDescription></AlertDialogHeader>
                         <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={() => setStatus(f, "BLOCKED", `${userName(f.friend_id)} blocked`)}>Block</AlertDialogAction></AlertDialogFooter>
+                          <AlertDialogAction className="bg-destructive text-primary-foreground hover:bg-destructive/90" onClick={() => setStatus(f, "BLOCKED", `${userName(f.friend_id)} blocked`)}>Block</AlertDialogAction></AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
                   </CardAction>
