@@ -17,6 +17,7 @@ import { cn, inr } from "@/lib/utils"
 import type { ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
 import type { SpendingMonth } from "@/types"
+import { Count, Glare, Money, Reveal, Spotlight } from "@/components/motion"
 
 const TODAY = new Date()
 const thisMonth = format(TODAY, "yyyy-MM")
@@ -53,11 +54,11 @@ export interface Trend { up: boolean; good: boolean; text: string; vs: string }
 export function StatCard({ title, value, icon: Icon, tone, note, trend, loading }: { title: string; value: number; icon: LucideIcon; tone: Tone; note?: string; trend?: Trend | null; loading?: boolean }) {
   const t = TONES[tone]
   return (
-    <Card className={cn("gap-3 bg-gradient-to-br to-card to-60% shadow-none", t.glow)}>
+    <Glare><Card className={cn("h-full gap-3 bg-gradient-to-br to-transparent to-60%", t.glow)}>
       <CardHeader>
         <CardDescription className="font-medium">{title}</CardDescription>
         <CardAction><span className={cn("flex size-9 items-center justify-center rounded-full", t.chip)}><Icon className="size-4" /></span></CardAction>
-        {loading ? <Skeleton className="h-8 w-32" /> : <CardTitle className={cn("text-2xl tabular-nums", t.value)}>{inr(value)}</CardTitle>}
+        {loading ? <Skeleton className="h-8 w-32" /> : <CardTitle className={cn("text-2xl", t.value)}><Money value={value} /></CardTitle>}
       </CardHeader>
       <CardContent className="flex items-center gap-2 text-xs text-muted-foreground">
         {trend && (
@@ -67,7 +68,7 @@ export function StatCard({ title, value, icon: Icon, tone, note, trend, loading 
         )}
         <span>{note}</span>
       </CardContent>
-    </Card>
+    </Card></Glare>
   )
 }
 
@@ -83,7 +84,7 @@ export function SpendingChart() {
   const paid = data.reduce((s, m) => s + m.you_paid, 0)
 
   return (
-    <Card className="shadow-none">
+    <Spotlight><Card className="h-full">
       <CardHeader>
         <CardTitle>Spending over time</CardTitle>
         <CardDescription>Your share of group costs vs what you paid up front.</CardDescription>
@@ -130,7 +131,7 @@ export function SpendingChart() {
           </AreaChart>
         </ChartContainer>
       </CardContent>
-    </Card>
+    </Card></Spotlight>
   )
 }
 
@@ -145,7 +146,7 @@ export function SettledRing() {
   const data = [{ name: "cleared", value: pct, fill: "var(--chart-1)" }]
 
   return (
-    <Card className="shadow-none">
+    <Spotlight><Card className="h-full">
       <CardHeader>
         <CardTitle>Settled this month</CardTitle>
         <CardDescription>How much of what you owed in {format(TODAY, "MMMM")} is cleared.</CardDescription>
@@ -158,7 +159,7 @@ export function SettledRing() {
           </RadialBarChart>
         </ChartContainer>
         <div className="-mt-14 grid place-items-center gap-1 text-center">
-          <span className="text-3xl font-semibold tabular-nums">{pct}%</span>
+          <span className="text-3xl font-semibold"><Count value={pct} suffix="%" /></span>
           <Badge variant="outline" className="border-transparent bg-positive-soft text-positive">{inr(cleared)} cleared</Badge>
         </div>
         <p className="mt-4 max-w-64 text-center text-sm text-muted-foreground">
@@ -173,7 +174,7 @@ export function SettledRing() {
           </div>
         ))}
       </CardFooter>
-    </Card>
+    </Card></Spotlight>
   )
 }
 
@@ -199,7 +200,7 @@ export function BalanceChart() {
   }
 
   return (
-    <Card className="shadow-none">
+    <Spotlight><Card className="h-full">
       <CardHeader>
         <CardTitle>Who owes whom</CardTitle>
         <CardDescription>Your open balance with each person, across all groups.</CardDescription>
@@ -228,7 +229,7 @@ export function BalanceChart() {
           </ChartContainer>
         )}
       </CardContent>
-    </Card>
+    </Card></Spotlight>
   )
 }
 
@@ -246,7 +247,7 @@ export function GroupDonut() {
   const total = data.reduce((s, d) => s + d.value, 0)
 
   return (
-    <Card className="shadow-none">
+    <Spotlight><Card className="h-full">
       <CardHeader>
         <CardTitle>Where the money went</CardTitle>
         <CardDescription>Spending in your groups this month.</CardDescription>
@@ -284,7 +285,7 @@ export function GroupDonut() {
           </ul>
         </>}
       </CardContent>
-    </Card>
+    </Card></Spotlight>
   )
 }
 
@@ -294,13 +295,14 @@ export function UpcomingBills({ onNavigate }: { onNavigate: (id: string) => void
   const { recurring, groupName } = useStore()
   const list = recurring.filter((t) => t.is_active && t.next_run_date).sort((a, b) => a.next_run_date.localeCompare(b.next_run_date)).slice(0, 4)
   return (
-    <Card className="shadow-none">
+    <Card>
       <CardHeader>
         <CardTitle>Upcoming bills</CardTitle>
         <CardDescription>Recurring bills that will be split soon.</CardDescription>
         <CardAction><Button variant="ghost" size="sm" onClick={() => onNavigate("recurring")}>See all</Button></CardAction>
       </CardHeader>
-      <CardContent className="grid gap-3">
+      <CardContent>
+        <Reveal className="grid gap-3" stagger={0.08} delay={0.2}>
         {list.length === 0 && <p className="text-sm text-muted-foreground">No active recurring bills.</p>}
         {list.map((t) => {
           const date = parseISO(t.next_run_date)
@@ -322,6 +324,7 @@ export function UpcomingBills({ onNavigate }: { onNavigate: (id: string) => void
             </div>
           )
         })}
+        </Reveal>
       </CardContent>
     </Card>
   )
@@ -339,7 +342,7 @@ const ACTIVITY: Record<string, { icon: LucideIcon; tone: string }> = {
 export function RecentActivity({ onNavigate }: { onNavigate: (id: string) => void }) {
   const { batches, userName } = useStore()
   return (
-    <Card className="shadow-none">
+    <Card>
       <CardHeader>
         <CardTitle>Recent activity</CardTitle>
         <CardDescription>Settlements that went through.</CardDescription>

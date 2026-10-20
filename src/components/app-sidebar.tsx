@@ -9,6 +9,7 @@ import { UserAvatar } from "@/components/shared"
 import { useStore } from "@/lib/store"
 import { DEMO_USER, useSession } from "@/lib/session"
 import { cn } from "@/lib/utils"
+import ShinyText from "@/components/bits/ShinyText"
 
 export { NAV }
 
@@ -31,7 +32,7 @@ export function AppSidebar({ page, onNavigate }: { page: string; onNavigate: (id
   const go = (id: string) => { onNavigate(id); if (isMobile) setOpenMobile(false) }
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible="icon" variant="floating">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
@@ -41,7 +42,7 @@ export function AppSidebar({ page, onNavigate }: { page: string; onNavigate: (id
                 <span className="section-icon flex aspect-square size-8 animate-wobble items-center justify-center rounded-full bg-foreground text-[15px] font-semibold tracking-tighter text-background group-hover/logo:animate-wobble">N</span>
                 <span className="grid flex-1 text-left leading-tight">
                   <span className="font-display text-xl leading-none tracking-tight">NoBroke</span>
-                  <span className="text-xs text-muted-foreground">Make moves. Unbound.</span>
+                  <span className="block truncate text-xs leading-tight"><ShinyText text="Make moves. Unbound." speed={3} color="var(--muted-foreground)" shineColor="var(--brand)" /></span>
                 </span>
               </Link>
             </SidebarMenuButton>

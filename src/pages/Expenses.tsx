@@ -228,7 +228,7 @@ export default function Expenses() {
         <InputGroupAddon><Search /></InputGroupAddon>
         <InputGroupInput placeholder="Search expenses" value={q} onChange={(e) => setQ(e.target.value)} />
       </InputGroup>
-      <Card className="shadow-none">
+      <Card>
         <CardContent>
           {rows.length === 0 ? (
             <Empty className="border-0"><EmptyHeader><EmptyTitle>No matching expenses</EmptyTitle><EmptyDescription>Try a different search, or add a new expense.</EmptyDescription></EmptyHeader></Empty>

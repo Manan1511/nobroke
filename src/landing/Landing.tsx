@@ -7,6 +7,7 @@ import { mountLanding } from "./scene"
 import { AuthPanel, type AuthMode } from "./AuthPanel"
 import { useSession } from "@/lib/session"
 import "./landing.css"
+import ShinyText from "@/components/bits/ShinyText"
 
 export default function Landing() {
   const root = useRef<HTMLDivElement>(null)
@@ -139,7 +140,7 @@ export default function Landing() {
             </>
           )}
         </div>
-        {session && <p className="hero-greeting" aria-live="polite">Signed in as {session.name}</p>}
+        {session && <p className="hero-greeting" aria-live="polite"><ShinyText text={`Signed in as ${session.name}`} speed={3} color="rgba(16,16,15,0.62)" shineColor="#ff4a1c" /></p>}
 
         <div className="screen-reader-only" aria-live="polite" id="menu-announcement"></div>
       </section>

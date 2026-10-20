@@ -10,6 +10,7 @@ import { PersonHover } from "@/components/form-bits"
 import { BalanceChart, GroupDonut, RecentActivity, SettledRing, SpendingChart, StatCard, UpcomingBills, monthTrend } from "@/components/dashboard"
 import { useStore } from "@/lib/store"
 import { cn, inr } from "@/lib/utils"
+import { Magnetic } from "@/components/motion"
 
 // Soft colour per split type, so the recent expenses list is easy to scan.
 const SPLIT_DOT = { EQUAL: "bg-primary", EXACT: "bg-info", INCOME_RATIO: "bg-warning" }
@@ -34,7 +35,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
       <PageHeader title="Dashboard" description="Where your money stands across every group."
         action={<div className="flex gap-2">
           <Button variant="outline" onClick={() => onNavigate("settle")}><ArrowLeftRight /> Settle up</Button>
-          <Button onClick={() => onNavigate("expenses")}><Plus /> Add expense</Button>
+          <Magnetic><Button onClick={() => onNavigate("expenses")}><Plus /> Add expense</Button></Magnetic>
         </div>} />
 
       {armed > 0 && (
@@ -70,7 +71,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="shadow-none">
+        <Card>
           <CardHeader>
             <CardTitle>Open balances</CardTitle>
             <CardAction><Button variant="ghost" size="sm" onClick={() => onNavigate("balances")}>See all</Button></CardAction>
@@ -106,7 +107,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="shadow-none">
+        <Card>
           <CardHeader>
             <CardTitle>Recent expenses</CardTitle>
             <CardAction><Button variant="ghost" size="sm" onClick={() => onNavigate("expenses")}>See all</Button></CardAction>

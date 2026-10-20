@@ -123,7 +123,7 @@ export default function SettleUp() {
         </Card>
       </div>
 
-      <Card className="shadow-none">
+      <Card>
         <CardHeader><CardTitle>Settlement history</CardTitle></CardHeader>
         <CardContent>
           <ScrollArea className="h-64 pr-3">

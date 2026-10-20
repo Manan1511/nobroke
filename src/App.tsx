@@ -13,6 +13,7 @@ import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbP
 import { Toaster } from "@/components/ui/sonner"
 import { UserAvatar } from "@/components/shared"
 import { NotificationsMenu } from "@/components/notifications-menu"
+import { SpatialBackdrop } from "@/components/spatial-backdrop"
 import { NAV, idForSlug, pathFor } from "@/lib/nav"
 import { useStore } from "@/lib/store"
 import { startSmoothScroll, scrollToTop } from "@/lib/smooth-scroll"
@@ -27,6 +28,7 @@ import PayRules from "@/pages/PayRules"
 import Recurring from "@/pages/Recurring"
 import Friends from "@/pages/Friends"
 import Profile from "@/pages/Profile"
+import { Magnetic, Reveal } from "@/components/motion"
 
 // Light / dark mode: a class on <html>. Starts from the page's host theme (data-theme on <html>, set by
 // viewers like the shared-link page), then the toggle choice saved in this browser, then the system setting.
@@ -113,9 +115,10 @@ export default function App() {
 
   return (
     <SidebarProvider>
+      <SpatialBackdrop />
       <AppSidebar page={page} onNavigate={go} />
       <SidebarInset>
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-4 backdrop-blur">
+        <header className="spatial-panel sticky top-2 z-30 mx-2 mt-2 flex h-14 shrink-0 items-center gap-2 rounded-full px-3 md:mx-4">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
           <Breadcrumb>
@@ -131,7 +134,7 @@ export default function App() {
               <KbdGroup className="ml-auto"><Kbd>Ctrl</Kbd><Kbd>K</Kbd></KbdGroup>
             </Button>
             <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSearchOpen(true)} aria-label="Search"><Search /></Button>
-            <Button size="sm" className="hidden sm:flex" onClick={() => go("expenses")}><Plus /> Expense</Button>
+            <span className="hidden sm:inline-flex"><Magnetic><Button size="sm" onClick={() => go("expenses")}><Plus /> Expense</Button></Magnetic></span>
             <NotificationsMenu onNavigate={go} />
             <Button variant="ghost" size="icon" onClick={() => setDark((d) => !d)} aria-label="Toggle dark mode">{dark ? <Sun /> : <Moon />}</Button>
             <DropdownMenu>
@@ -150,7 +153,7 @@ export default function App() {
           </div>
         </header>
         <main className="mx-auto w-full max-w-6xl flex-1 space-y-6 p-4 md:p-8">
-          <Page onNavigate={go} />
+          <Reveal key={page} className="space-y-6"><Page onNavigate={go} /></Reveal>
         </main>
       </SidebarInset>
       <CommandMenu open={searchOpen} setOpen={setSearchOpen} go={go} />

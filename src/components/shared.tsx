@@ -4,6 +4,7 @@ import { NAV } from "@/lib/nav"
 import { useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 import type { ReactNode } from "react"
+import BlurText from "@/components/bits/BlurText"
 
 export function PageHeader({ title, description, action }: { title: string; description?: string; action?: ReactNode }) {
   const section = NAV.find((n) => n.label === title)
@@ -16,7 +17,7 @@ export function PageHeader({ title, description, action }: { title: string; desc
               <section.icon aria-hidden="true" className={cn("section-icon size-5", section.color, section.anim)} />
             </span>
           )}
-          {title}
+          <BlurText key={title} text={title} animateBy="letters" delay={35} stepDuration={0.3} trigger="load" />
         </h1>
         {description && <p className="mt-2 text-sm text-muted-foreground">{description}</p>}
       </div>

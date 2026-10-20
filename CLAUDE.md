@@ -55,6 +55,18 @@ Icons: lucide-react. Toasts: sonner. Routing: react-router v7. Landing: three 0.
 - `src/lib/store.jsx`: in-memory state for mock data
 - `src/data/mock.js`: mock data shaped like the PRD tables
 
+## Spatial UI + motion
+- Spatial: `.spatial-panel` (index.css) = frosted glass (blur 22px, edge highlight, layered shadow) on every Card,
+  the floating header pill and the floating sidebar; `components/spatial-backdrop.tsx` = soft ambient light in
+  the landing colours. Don't add `shadow-none` to cards (kills the depth).
+- React Bits (TS + Tailwind, `npx shadcn add https://reactbits.dev/r/<Name>-TS-TW`, moved to
+  `src/components/bits/`): AnimatedContent, BlurText (root changed to <span> so it can sit in <h1>), CountUp,
+  SpotlightCard, GlareHover, Magnet, ClickSpark, ShinyText. Use the wrappers in `components/motion.tsx`
+  (Reveal, Money, Count, Spotlight, Glare, Magnetic) so timing/colours stay consistent; all respect reduced motion.
+  Where: ClickSpark wraps the whole app (main.tsx); Reveal = page entrance (App.tsx) + bill list; BlurText = page
+  titles; Money/Count = dashboard numbers; Glare = stat cards; Spotlight = big dashboard cards; Magnetic = main
+  CTAs; ShinyText = sidebar tagline + landing greeting.
+
 ## Theme
 Matched to the landing page. Colours live in `src/index.css`: cream background #F2EEE6, ink #10100F as primary
 (black pill buttons, like the landing's ACCESS APP), tube orange #FF4A1C as `brand` / ring / sidebar-primary,
