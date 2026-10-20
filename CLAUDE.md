@@ -26,7 +26,11 @@ Icons: lucide-react. Toasts: sonner.
 - `src/App.jsx`: shell (shadcn Sidebar + header with Ctrl+K search, dark-mode toggle, account menu; state-based page switching)
 - `src/components/app-sidebar.jsx`: sidebar (collapses to icons, Ctrl+B; sheet on phones; counters on sections)
 - `src/lib/nav.js`: the list of sections + each icon's animation class (used by sidebar, page headers, search)
-- `src/pages/`: Dashboard (stat cards, "Who owes whom" chart), Groups, Expenses (sortable data table),
+- `src/components/dashboard.jsx`: dashboard sections, layout modelled on TailAdmin (stat cards with trend,
+  Spending over time area chart with 3M/6M/12M tabs, Settled-this-month ring, Who owes whom bars,
+  Where the money went donut, Upcoming bills, Recent activity timeline)
+- `src/components/notifications-menu.jsx`: header bell (unread count, mark all as read)
+- `src/pages/`: Dashboard, Groups, Expenses (sortable data table),
   Balances, SettleUp, PayRules, Recurring, Friends, Profile
 - `src/components/ui/`: official shadcn components (added with `npx shadcn@latest add`)
 - `src/components/form-bits.jsx`: AmountInput (₹ input group), SplitModeToggle, DatePicker, PeoplePicker
