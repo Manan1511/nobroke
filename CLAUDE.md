@@ -25,6 +25,7 @@ Icons: lucide-react. Toasts: sonner.
 ## Layout
 - `src/App.jsx`: shell (shadcn Sidebar + header with Ctrl+K search, dark-mode toggle, account menu; state-based page switching)
 - `src/components/app-sidebar.jsx`: sidebar (collapses to icons, Ctrl+B; sheet on phones; counters on sections)
+- `src/lib/smooth-scroll.js`: Lenis smooth scrolling (off for reduced motion; skips dialogs, menus, scroll areas, sidebar; pauses while Radix locks the page). Navigate with scrollToTop().
 - `src/lib/nav.js`: the list of sections + each icon's animation class (used by sidebar, page headers, search)
 - `src/components/dashboard.jsx`: dashboard sections, layout modelled on TailAdmin (stat cards with trend,
   Spending over time area chart with 3M/6M/12M tabs, Settled-this-month ring, Who owes whom bars,

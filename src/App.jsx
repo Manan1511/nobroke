@@ -14,6 +14,7 @@ import { UserAvatar } from "@/components/shared"
 import { NotificationsMenu } from "@/components/notifications-menu"
 import { NAV } from "@/lib/nav"
 import { useStore } from "@/lib/store"
+import { startSmoothScroll, scrollToTop } from "@/lib/smooth-scroll"
 import { inr } from "@/lib/utils"
 import Dashboard from "@/pages/Dashboard"
 import Groups from "@/pages/Groups"
@@ -77,7 +78,8 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [dark, setDark] = useDarkMode()
   const Page = PAGES[page]
-  const go = (p) => { setPage(p); window.scrollTo(0, 0) }
+  const go = (p) => { setPage(p); scrollToTop() }
+  useEffect(() => startSmoothScroll(), [])
 
   return (
     <SidebarProvider>
