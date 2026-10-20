@@ -20,13 +20,22 @@ All core business logic lives in PostgreSQL (see PRD section 3), not in the fron
 ## Stack
 React 19 + Vite + Tailwind CSS v4, plain JavaScript (JSX, no TypeScript).
 shadcn/ui-compatible setup: `components.json`, `@/` alias -> `src/`, shadcn color tokens in `src/index.css`.
-Icons: lucide-react. Toasts: sonner.
+Icons: lucide-react. Toasts: sonner. Routing: react-router v7. Landing: three 0.180 + gsap 3.13. Smooth scroll: lenis.
 
 ## Layout
-- `src/App.jsx`: shell (shadcn Sidebar + header with Ctrl+K search, dark-mode toggle, account menu; state-based page switching)
+- Routes (`src/main.jsx`): `/` = landing page, `/app` = dashboard, `/app/<slug>` = each section
+  (groups, expenses, balances, settle-up, pay-when-paid, recurring-bills, friends, profile). Unknown -> `/`.
+  When deploying (e.g. Vercel) add an SPA rewrite so every path serves index.html.
+- `src/landing/`: the NoBroke landing hero from `Downloads/nobroke-source` (teammate's Vite + Three.js + GSAP page).
+  `Landing.jsx` = its HTML as JSX (menu + buttons link into /app via data-app-link), `scene.js` = its main.js
+  wrapped as mountLanding(root) with full cleanup, `landing.css` = its style.css scoped under `.nb-landing`.
+  To pull a newer version of their page: re-port the same three files the same way.
+- `src/App.jsx`: app shell (shadcn Sidebar + header with Ctrl+K search, bell, dark-mode toggle, account menu
+  with "home page" / sign out -> `/`); the page comes from the URL (`useParams` + `idForSlug`), go(id) navigates.
 - `src/components/app-sidebar.jsx`: sidebar (collapses to icons, Ctrl+B; sheet on phones; counters on sections)
 - `src/lib/smooth-scroll.js`: Lenis smooth scrolling (off for reduced motion; skips dialogs, menus, scroll areas, sidebar; pauses while Radix locks the page). Navigate with scrollToTop().
-- `src/lib/nav.js`: the list of sections + each icon's animation class (used by sidebar, page headers, search)
+- `src/lib/nav.js`: the list of sections: slug (address), colour classes (--nav-* per section), icon animation;
+  `pathFor(id)` / `idForSlug(slug)` (used by sidebar, page headers, search)
 - `src/components/dashboard.jsx`: dashboard sections, layout modelled on TailAdmin (stat cards with trend,
   Spending over time area chart with 3M/6M/12M tabs, Settled-this-month ring, Who owes whom bars,
   Where the money went donut, Upcoming bills, Recent activity timeline)
@@ -42,10 +51,14 @@ Icons: lucide-react. Toasts: sonner.
 - `src/data/mock.js`: mock data shaped like the PRD tables
 
 ## Theme
-Colours live in `src/index.css`: teal-green primary, soft mint background, meaning colours
-`positive` (owed to you), `negative` (you owe), `warning` (open), `info` (in progress), each with a `-soft`
-tint; `--chart-positive/negative` are a colour-blind-checked pair for the balance chart. Dark mode = `.dark`
-class on <html> (toggle in App.jsx, remembered in localStorage).
+Matched to the landing page. Colours live in `src/index.css`: cream background #F2EEE6, ink #10100F as primary
+(black pill buttons, like the landing's ACCESS APP), tube orange #FF4A1C as `brand` / ring / sidebar-primary,
+warm card #FBF9F5. Meaning colours `positive` (owed to you), `negative` (you owe), `warning` (open), `info`
+(in progress), each with a `-soft` tint. `--nav-<id>` = one colour per section icon. Charts: chart-1..3 =
+orange / blue / gold, `--chart-positive/negative` for the balance chart (all colour-blind-checked).
+Fonts: Inter (body, `font-sans`) and Anton (`font-display`: page titles, sidebar wordmark), loaded in index.html.
+Buttons are pill-shaped (rounded-full in ui/button.jsx). Dark mode = `.dark` class on <html> (warm dark;
+toggle in App.jsx, remembered in localStorage). The landing page keeps its own fixed cream look.
 
 ## Adding shadcn components (gotchas)
 - `npx shadcn@latest add <name> --yes --overwrite` writes `import { cn } from "cn"` and installs an unrelated

@@ -9,11 +9,15 @@ export function PageHeader({ title, description, action }) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
-          {section && <section.icon aria-hidden="true" className={cn("section-icon size-6 text-muted-foreground", section.anim)} />}
+        <h1 className="flex items-center gap-3 font-display text-4xl leading-none tracking-tight">
+          {section && (
+            <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-full", section.tint)}>
+              <section.icon aria-hidden="true" className={cn("section-icon size-5", section.color, section.anim)} />
+            </span>
+          )}
           {title}
         </h1>
-        {description && <p className="text-sm text-muted-foreground">{description}</p>}
+        {description && <p className="mt-2 text-sm text-muted-foreground">{description}</p>}
       </div>
       {action}
     </div>

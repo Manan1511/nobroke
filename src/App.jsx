@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
-import { Moon, Sun, LogOut, UserCog, Search, Plus } from "lucide-react"
+import { Navigate, useNavigate, useParams } from "react-router"
+import { Moon, Sun, LogOut, UserCog, Search, Plus, House } from "lucide-react"
 import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
 import { Button } from "@/components/ui/button"
@@ -12,7 +13,7 @@ import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbP
 import { Toaster } from "@/components/ui/sonner"
 import { UserAvatar } from "@/components/shared"
 import { NotificationsMenu } from "@/components/notifications-menu"
-import { NAV } from "@/lib/nav"
+import { NAV, idForSlug, pathFor } from "@/lib/nav"
 import { useStore } from "@/lib/store"
 import { startSmoothScroll, scrollToTop } from "@/lib/smooth-scroll"
 import { inr } from "@/lib/utils"
@@ -53,8 +54,8 @@ function CommandMenu({ open, setOpen, go }) {
       <CommandList>
         <CommandEmpty>Nothing found.</CommandEmpty>
         <CommandGroup heading="Pages">
-          {NAV.map(({ id, label, icon: Icon }) => (
-            <CommandItem key={id} value={label} onSelect={() => run(() => go(id))}><Icon /> {label}</CommandItem>
+          {NAV.map(({ id, label, icon: Icon, color }) => (
+            <CommandItem key={id} value={label} onSelect={() => run(() => go(id))}><Icon className={color} /> {label}</CommandItem>
           ))}
         </CommandGroup>
         <CommandSeparator />
@@ -74,12 +75,16 @@ function CommandMenu({ open, setOpen, go }) {
 }
 
 export default function App() {
-  const [page, setPage] = useState("dashboard")
+  const { section } = useParams()
+  const navigate = useNavigate()
+  const page = idForSlug(section)
   const [searchOpen, setSearchOpen] = useState(false)
   const [dark, setDark] = useDarkMode()
-  const Page = PAGES[page]
-  const go = (p) => { setPage(p); scrollToTop() }
+  const go = (p) => { navigate(pathFor(p)); scrollToTop() }
   useEffect(() => startSmoothScroll(), [])
+  useEffect(() => { if (page) document.title = `${NAV.find((n) => n.id === page).label} · NoBroke` }, [page])
+  if (!page) return <Navigate to="/app" replace />
+  const Page = PAGES[page]
 
   return (
     <SidebarProvider>
@@ -112,7 +117,9 @@ export default function App() {
                 <DropdownMenuLabel>you@example.com</DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => go("profile")}><UserCog /> Profile & privacy</DropdownMenuItem>
-                <DropdownMenuItem variant="destructive" onSelect={() => toast("Signed out (mock)")}><LogOut /> Sign out</DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate("/")}><House /> NoBroke home page</DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => { toast("Signed out (mock)"); navigate("/") }}><LogOut /> Sign out</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

@@ -1,5 +1,5 @@
 // App sidebar built on shadcn's Sidebar: collapses to icons on desktop (Ctrl+B), slides in on phones.
-import { Wallet } from "lucide-react"
+import { Link } from "react-router"
 import { NAV } from "@/lib/nav"
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarHeader,
@@ -33,14 +33,15 @@ export function AppSidebar({ page, onNavigate }) {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton size="lg" onClick={() => go("dashboard")} className="group/logo">
-              <span className="flex aspect-square size-8 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground">
-                <Wallet className="section-icon size-4 animate-wobble group-hover/logo:animate-wobble" />
-              </span>
-              <span className="grid flex-1 text-left leading-tight">
-                <span className="font-semibold">NoBroke</span>
-                <span className="text-xs text-muted-foreground">Split it. Settle it.</span>
-              </span>
+            {/* Same round "N" mark as the landing page; goes back to it. */}
+            <SidebarMenuButton size="lg" asChild tooltip="NoBroke home" className="group/logo">
+              <Link to="/">
+                <span className="section-icon flex aspect-square size-8 animate-wobble items-center justify-center rounded-full bg-foreground text-[15px] font-semibold tracking-tighter text-background group-hover/logo:animate-wobble">N</span>
+                <span className="grid flex-1 text-left leading-tight">
+                  <span className="font-display text-xl leading-none tracking-tight">NoBroke</span>
+                  <span className="text-xs text-muted-foreground">Make moves. Unbound.</span>
+                </span>
+              </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -53,12 +54,12 @@ export function AppSidebar({ page, onNavigate }) {
             <SidebarGroupContent>
               <SidebarMenu>
                 {g.ids.map((id) => {
-                  const { label, icon: Icon, anim, hover } = NAV.find((n) => n.id === id)
+                  const { label, icon: Icon, anim, hover, color, activeTint } = NAV.find((n) => n.id === id)
                   const active = page === id
                   return (
                     <SidebarMenuItem key={id}>
-                      <SidebarMenuButton isActive={active} tooltip={label} onClick={() => go(id)}>
-                        <Icon className={cn("section-icon", active ? cn(anim, "text-sidebar-primary") : hover)} />
+                      <SidebarMenuButton isActive={active} tooltip={label} onClick={() => go(id)} className={activeTint}>
+                        <Icon className={cn("section-icon", color, active ? anim : hover)} />
                         <span>{label}</span>
                       </SidebarMenuButton>
                       {badges[id] > 0 && <SidebarMenuBadge>{badges[id]}</SidebarMenuBadge>}
