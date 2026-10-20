@@ -1,0 +1,2 @@
+-- No fixed demo users are seeded. Create test users through Supabase Auth so
+-- profile and membership triggers run through the same path as real accounts.
