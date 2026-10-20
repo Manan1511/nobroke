@@ -368,6 +368,7 @@ function runIntro() {
     gsap.set([title, topbar, actions, taglineWords, icons.map((icon) => icon.querySelector('.icon-art'))], { clearProps: 'all', autoAlpha: 1, y: 0, scale: 1 });
     gsap.set(glitchSlices, { autoAlpha: 0 });
     introFinished = true;
+    root.classList.remove('nb-intro');
     return;
   }
   const iconArt = icons.map((icon) => icon.querySelector('.icon-art'));
@@ -378,7 +379,7 @@ function runIntro() {
   gsap.set(actions, { autoAlpha: 0, y: 12 });
   gsap.set(taglineWords, { autoAlpha: 0, y: 10 });
 
-  introTimeline = gsap.timeline({ onComplete: () => { introFinished = true; } });
+  introTimeline = gsap.timeline({ onComplete: () => { introFinished = true; root.classList.remove('nb-intro'); } });
   introTimeline.to(glitchSlices, {
     autoAlpha: 1,
     x: 0,
@@ -392,8 +393,7 @@ function runIntro() {
   introTimeline.to(glitchSlices, { autoAlpha: 0, duration: 0.12, stagger: 0.002, ease: 'power1.out' }, 0.58);
   introTimeline.to(iconArt, { autoAlpha: 1, scale: 1, duration: 0.43, ease: openEase, stagger: 0.075 }, 0.62);
   introTimeline.to(topbar, { autoAlpha: 1, y: 0, duration: 0.32, ease: 'power2.out' }, 0.68);
-  introTimeline.to(actions[0], { autoAlpha: 1, y: 0, duration: 0.32, ease: 'power2.out' }, 0.87);
-  introTimeline.to(actions[1], { autoAlpha: 1, y: 0, duration: 0.32, ease: 'power2.out' }, 0.98);
+  introTimeline.to(actions, { autoAlpha: 1, y: 0, duration: 0.32, ease: 'power2.out', stagger: 0.11 }, 0.87);
   introTimeline.to(taglineWords, { autoAlpha: 1, y: 0, duration: 0.27, ease: 'power2.out', stagger: 0.095 }, 1.05);
 }
 
@@ -474,6 +474,7 @@ on(menuPanel, 'click', (event) => {
 // Safety net: if the intro never runs (e.g. a stalled tab), show everything after 3 s.
 const watchdog = window.setTimeout(() => {
   if (!introFinished) gsap.set([title, topbar, actions, taglineWords, icons.map((icon) => icon.querySelector('.icon-art'))], { autoAlpha: 1, x: 0, y: 0, scale: 1 })
+  root.classList.remove('nb-intro')
 }, 3000);
 
 return () => {

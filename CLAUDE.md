@@ -30,6 +30,11 @@ Icons: lucide-react. Toasts: sonner. Routing: react-router v7. Landing: three 0.
   `Landing.jsx` = its HTML as JSX (menu + buttons link into /app via data-app-link), `scene.js` = its main.js
   wrapped as mountLanding(root) with full cleanup, `landing.css` = its style.css scoped under `.nb-landing`.
   To pull a newer version of their page: re-port the same three files the same way.
+- `src/lib/session.js`: demo sign-in kept in localStorage (`nobroke-session`: name + email, never a password).
+  A first-time visitor counts as signed in (demo user "You"). Landing: signed in -> one ENTER button +
+  "Signed in as <name>"; signed out -> LOG IN / SIGN UP (`src/landing/AuthPanel.jsx`, landing-styled form).
+  `/app` redirects to `/` when signed out; Sign out in the account menu calls signOut(). Backend: replace
+  signIn/signOut with real auth calls.
 - `src/App.jsx`: app shell (shadcn Sidebar + header with Ctrl+K search, bell, dark-mode toggle, account menu
   with "home page" / sign out -> `/`); the page comes from the URL (`useParams` + `idForSlug`), go(id) navigates.
 - `src/components/app-sidebar.jsx`: sidebar (collapses to icons, Ctrl+B; sheet on phones; counters on sections)

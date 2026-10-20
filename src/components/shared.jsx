@@ -24,9 +24,9 @@ export function PageHeader({ title, description, action }) {
   )
 }
 
-export function UserAvatar({ id, className }) {
+export function UserAvatar({ id, name, className }) {
   const { userName } = useStore()
-  const n = userName(id)
+  const n = name ?? userName(id)
   const initials = n.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase()
   return <Avatar className={className}><AvatarFallback>{initials}</AvatarFallback></Avatar>
 }

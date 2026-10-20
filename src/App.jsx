@@ -16,6 +16,7 @@ import { NotificationsMenu } from "@/components/notifications-menu"
 import { NAV, idForSlug, pathFor } from "@/lib/nav"
 import { useStore } from "@/lib/store"
 import { startSmoothScroll, scrollToTop } from "@/lib/smooth-scroll"
+import { signOut, useSession } from "@/lib/session"
 import { inr } from "@/lib/utils"
 import Dashboard from "@/pages/Dashboard"
 import Groups from "@/pages/Groups"
@@ -99,12 +100,14 @@ function CommandMenu({ open, setOpen, go }) {
 export default function App() {
   const { section } = useParams()
   const navigate = useNavigate()
+  const session = useSession()
   const page = idForSlug(section)
   const [searchOpen, setSearchOpen] = useState(false)
   const [dark, setDark] = useDarkMode()
   const go = (p) => { navigate(pathFor(p)); scrollToTop() }
   useEffect(() => startSmoothScroll(), [])
   useEffect(() => { if (page) document.title = `${NAV.find((n) => n.id === page).label} · NoBroke` }, [page])
+  if (!session) return <Navigate to="/" replace /> // signed out: the landing page offers Log in / Sign up
   if (!page) return <Navigate to="/app" replace />
   const Page = PAGES[page]
 
@@ -133,15 +136,15 @@ export default function App() {
             <Button variant="ghost" size="icon" onClick={() => setDark((d) => !d)} aria-label="Toggle dark mode">{dark ? <Sun /> : <Moon />}</Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button type="button" aria-label="Account menu" className="rounded-full"><UserAvatar id="u1" /></button>
+                <button type="button" aria-label="Account menu" className="rounded-full"><UserAvatar id="u1" name={session.name} /></button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuLabel>you@example.com</DropdownMenuLabel>
+                <DropdownMenuLabel className="grid gap-0.5"><span>{session.name}</span><span className="text-xs font-normal text-muted-foreground">{session.email}</span></DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => go("profile")}><UserCog /> Profile & privacy</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => navigate("/")}><House /> NoBroke home page</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onSelect={() => { toast("Signed out (mock)"); navigate("/") }}><LogOut /> Sign out</DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" onSelect={() => { signOut(); toast("Signed out"); navigate("/") }}><LogOut /> Sign out</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

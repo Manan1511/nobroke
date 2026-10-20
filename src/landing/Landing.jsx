@@ -1,13 +1,22 @@
 // NoBroke landing page (from nobroke-source), rendered inside the React app at "/".
-// Links marked data-app-link open the app without a full page reload.
-import { useEffect, useRef } from "react"
+// Links marked data-app-link open the app without a full page reload. Signed in (lib/session.js) ->
+// one ENTER button; signed out -> LOG IN / SIGN UP, and app links open the log-in panel first.
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router"
 import { mountLanding } from "./scene"
+import { AuthPanel } from "./AuthPanel"
+import { useSession } from "@/lib/session"
 import "./landing.css"
 
 export default function Landing() {
   const root = useRef(null)
   const navigate = useNavigate()
+  const session = useSession()
+  const [auth, setAuth] = useState(null) // null | "login" | "signup"
+  const [next, setNext] = useState("/app") // where to go after logging in
+  const signedIn = useRef(!!session)
+  signedIn.current = !!session
+  const closeAuth = useCallback(() => setAuth(null), [])
 
   useEffect(() => {
     document.title = "NoBroke — Make moves. Unbound."
@@ -17,7 +26,8 @@ export default function Landing() {
       const a = e.target.closest("a[data-app-link]")
       if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
       e.preventDefault()
-      navigate(a.getAttribute("href"))
+      if (signedIn.current) navigate(a.getAttribute("href"))
+      else { setNext(a.getAttribute("href")); setAuth("login") }
     }
     el.addEventListener("click", onClick)
     return () => { el.removeEventListener("click", onClick); cleanup() }
@@ -44,7 +54,7 @@ export default function Landing() {
               <a href="/app/recurring-bills" data-app-link>RECURRING BILLS</a>
               <a href="/app/friends" data-app-link>FRIENDS &amp; TRUST</a>
               <a href="/app/profile" data-app-link>PROFILE</a>
-              <a className="menu-access" href="/app" data-app-link>ACCESS APP</a>
+              <a className="menu-access" href="/app" data-app-link>{session ? "ENTER" : "LOG IN"}</a>
             </div>
           </nav>
         </header>
@@ -119,13 +129,21 @@ export default function Landing() {
         </div>
 
         <div className="hero-actions" id="hero-actions">
-          <a className="pill-button" href="/app" data-app-link>ACCESS THE APP</a>
-          <a className="pill-button handset-button" href="/app" data-app-link>SUPPORTED ON EVERY HANDSET <span aria-hidden="true">↗</span></a>
+          {session ? (
+            <a className="pill-button enter-button" href="/app" data-app-link>ENTER <span aria-hidden="true">→</span></a>
+          ) : (
+            <>
+              <button type="button" className="pill-button" onClick={() => { setNext("/app"); setAuth("login") }}>LOG IN</button>
+              <button type="button" className="pill-button pill-solid" onClick={() => { setNext("/app"); setAuth("signup") }}>SIGN UP</button>
+            </>
+          )}
         </div>
+        {session && <p className="hero-greeting" aria-live="polite">Signed in as {session.name}</p>}
 
         <div className="screen-reader-only" aria-live="polite" id="menu-announcement"></div>
       </section>
     </main>
+    {auth && <AuthPanel mode={auth} onModeChange={setAuth} onClose={closeAuth} onDone={() => { setAuth(null); navigate(next) }} />}
     </div>
   )
 }

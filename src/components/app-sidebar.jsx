@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/sidebar"
 import { UserAvatar } from "@/components/shared"
 import { useStore } from "@/lib/store"
+import { DEMO_USER, useSession } from "@/lib/session"
 import { cn } from "@/lib/utils"
 
 export { NAV }
@@ -20,6 +21,7 @@ const GROUPS = [
 export function AppSidebar({ page, onNavigate }) {
   const { obligations, friendships, rules, me } = useStore()
   const { isMobile, setOpenMobile } = useSidebar()
+  const session = useSession() ?? DEMO_USER
   // Small counters next to some sections, so you can see what needs attention.
   const badges = {
     balances: obligations.filter((o) => o.debtor_id === me && o.status !== "SETTLED").length,
@@ -76,10 +78,10 @@ export function AppSidebar({ page, onNavigate }) {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" tooltip="Profile & privacy" onClick={() => go("profile")}>
-              <UserAvatar id="u1" className="size-8" />
+              <UserAvatar id="u1" name={session.name} className="size-8" />
               <span className="grid flex-1 text-left leading-tight">
-                <span className="font-medium">You</span>
-                <span className="truncate text-xs text-muted-foreground">you@example.com</span>
+                <span className="truncate font-medium">{session.name}</span>
+                <span className="truncate text-xs text-muted-foreground">{session.email}</span>
               </span>
             </SidebarMenuButton>
           </SidebarMenuItem>
