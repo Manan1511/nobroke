@@ -3,9 +3,14 @@ import type { Database } from "./database.types.js";
 /** Stable JSON shapes returned by NoBroke's api-schema RPCs. Money stays text. */
 export type UUID = string;
 export type Money = string;
+/** EXACT shares are a JSON object keyed by participant UUID. */
+export type ExactShares = Record<UUID, Money>;
 export type ApiFunctionName = keyof Database["api"]["Functions"];
+type ContractArgs<Args> = "p_exact_shares" extends keyof Args
+  ? Omit<Args, "p_exact_shares"> & { p_exact_shares?: ExactShares | null }
+  : Args;
 export type ApiFunctionArgs<Name extends ApiFunctionName> =
-  Database["api"]["Functions"][Name]["Args"];
+  ContractArgs<Database["api"]["Functions"][Name]["Args"]>;
 
 export type ExpenseSplitMode = "EQUAL" | "EXACT" | "INCOME_RATIO";
 export type BillingFrequency = "WEEKLY" | "MONTHLY" | "YEARLY";
@@ -77,9 +82,6 @@ export type BillingRun = {
   started_at: string;
   finished_at: string | null;
 };
-
-/** EXACT shares are a JSON object keyed by participant UUID. */
-export type ExactShares = Record<UUID, Money>;
 
 export type ApiErrorCode =
   | "authentication_required"
