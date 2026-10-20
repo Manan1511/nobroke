@@ -14,6 +14,8 @@ export function StoreProvider({ children }) {
     recurring: mock.recurringTemplates,
     batches: mock.settlementBatches,
     myFinancials: mock.myPrivateFinancials,
+    spending: mock.spendingHistory,
+    notifications: mock.notifications,
   })
   const update = (key, fn) => setState((s) => ({ ...s, [key]: fn(s[key]) }))
   const userName = (id) => state.users.find((u) => u.user_id === id)?.name ?? "Unknown"

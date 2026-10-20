@@ -61,3 +61,28 @@ export const settlementBatches = [
 
 // Private: only the current user's own income band. Never other people's.
 export const myPrivateFinancials = { monthly_income: 42000, equity_weight: 1.35, updated_at: "2026-09-30" }
+
+// Dashboard: one row per month for the current user (the backend computes these).
+// your_share = what your splits added up to; you_paid = what you paid for others; group_total = all spending in your groups.
+export const spendingHistory = [
+  { month: "2025-11", your_share: 11850, you_paid: 9200, group_total: 41200 },
+  { month: "2025-12", your_share: 14320, you_paid: 16900, group_total: 52600 },
+  { month: "2026-01", your_share: 12100, you_paid: 10400, group_total: 43900 },
+  { month: "2026-02", your_share: 11480, you_paid: 12750, group_total: 40100 },
+  { month: "2026-03", your_share: 12960, you_paid: 11300, group_total: 45800 },
+  { month: "2026-04", your_share: 13540, you_paid: 15200, group_total: 47300 },
+  { month: "2026-05", your_share: 15880, you_paid: 13900, group_total: 58400 },
+  { month: "2026-06", your_share: 12230, you_paid: 12900, group_total: 44100 },
+  { month: "2026-07", your_share: 11760, you_paid: 10100, group_total: 42700 },
+  { month: "2026-08", your_share: 13190, you_paid: 14600, group_total: 46900 },
+  { month: "2026-09", your_share: 12640, you_paid: 11800, group_total: 45200 },
+  { month: "2026-10", your_share: 12780, you_paid: 13450, group_total: 46200 },
+]
+
+export const notifications = [
+  { id: "n1", type: "REMINDER", text: "Rohan Das reminded you about Beach shack dinner", at: "2026-10-19T18:20:00", read: false },
+  { id: "n2", type: "FRIEND_REQUEST", text: "Kabir Rao sent you a friend request", at: "2026-10-19T10:05:00", read: false },
+  { id: "n3", type: "RULE_ARMED", text: "Your pay-when-paid rule for Canteen thali is waiting on Meera", at: "2026-10-16T13:40:00", read: false },
+  { id: "n4", type: "SETTLED", text: "₹500 to Rohan was settled through Aarav", at: "2026-10-14T09:12:00", read: true },
+  { id: "n5", type: "BILL", text: "Rent for November will be added on 1 Nov", at: "2026-10-12T08:00:00", read: true },
+]

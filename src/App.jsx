@@ -11,6 +11,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb"
 import { Toaster } from "@/components/ui/sonner"
 import { UserAvatar } from "@/components/shared"
+import { NotificationsMenu } from "@/components/notifications-menu"
 import { NAV } from "@/lib/nav"
 import { useStore } from "@/lib/store"
 import { inr } from "@/lib/utils"
@@ -99,6 +100,7 @@ export default function App() {
             </Button>
             <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSearchOpen(true)} aria-label="Search"><Search /></Button>
             <Button size="sm" className="hidden sm:flex" onClick={() => go("expenses")}><Plus /> Expense</Button>
+            <NotificationsMenu onNavigate={go} />
             <Button variant="ghost" size="icon" onClick={() => setDark((d) => !d)} aria-label="Toggle dark mode">{dark ? <Sun /> : <Moon />}</Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

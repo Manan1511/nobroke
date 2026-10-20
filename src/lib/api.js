@@ -30,3 +30,7 @@ export async function previewIncomeSplit(participantIds) {
   if (participantIds.length < 3) return { ok: false, reason: "Income splits need at least 3 people." }
   return { ok: true }
 }
+
+// GET /me/spending?months=12  -> [{ month: "YYYY-MM", your_share, you_paid, group_total }]
+// GET /me/notifications       -> [{ id, type, text, at, read }]
+// The UI currently reads both from the mock store (see src/data/mock.js for the shapes).
