@@ -1,5 +1,5 @@
 // TypeScript API contract for the public and custom `api` schemas.
-// Regenerate from the local Supabase stack with `npm run db:types`.
+// Regenerate from the linked Supabase project with `npm run db:types`.
 export type Json =
   | string
   | number

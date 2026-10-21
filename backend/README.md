@@ -6,23 +6,21 @@ The hosted development project is in Mumbai (`ap-south-1`), ref `wgsrncpjoqsjvqm
 
 ## Local development
 
-Install Node.js 24 and Docker Desktop. From this directory, install the pinned dependencies and run:
+Install Node.js 24. From this directory, install the pinned dependencies and run:
 
 ```sh
 npm ci
-npm run db:start
 npm test
-npm run test:db
 npm run typecheck
 ```
 
-`supabase start` prints local API keys and URLs. Auth confirmation emails are captured by local Mailpit at <http://127.0.0.1:54324>. Stop the local stack with `npm run db:stop`. `npm run db:reset` rebuilds it from migrations and the intentionally empty seed file.
+The automated suite uses PGlite in-process to replay the migrations and exercise database behavior; it does not start a local Supabase stack. The optional PostgreSQL contract suite and generated types use the linked hosted development project.
 
-Create local test users through Supabase Auth or Studio so the `auth.users` profile trigger runs. Keep test emails and passwords out of source control. Do not seed fixed credentials.
+Create test users in the hosted development project through Supabase Auth or Studio so the `auth.users` profile trigger runs. Use project-team email addresses and keep test emails and passwords out of source control.
 
 ## Database changes
 
-Migrations live in `supabase/migrations`. Create every new migration with `npx supabase migration new <descriptive_name>`, validate with `npm run db:reset` and both test suites, then apply it to the linked hosted development project after review. The hosted project is not linked in this repository and no access token is stored here.
+Migrations live in `supabase/migrations`. Create every new migration with `npx supabase migration new <descriptive_name>`, then validate it with `npm test` and `npm run typecheck`. For optional checks against the hosted development database, authenticate with `npx supabase login`, link the project once with `npx supabase link --project-ref wgsrncpjoqsjvqmsjvjc`, and run `npm run test:db` or `npm run db:types`. Apply reviewed migrations to that project with `npx supabase db push`. No access token is stored in this repository.
 
 The Data API exposes `api` alongside the platform schemas. App tables live in `app`; privileged functions and Person 3 hooks live in unexposed `private`. A migration pins PostgREST's exposed-schema list on the `authenticator` role so local and hosted behavior match; change that list through a migration rather than the Dashboard's Exposed Schemas control. Auth email remains in Supabase Auth. Private financials store only a band weight, never salary. The API returns money as decimal strings.
 
@@ -38,4 +36,4 @@ The migration enables `pg_cron` but leaves its worker unscheduled. After Person 
 
 ## Checks
 
-GitHub Actions runs the PGlite behavior/security tests, TypeScript checks, and local Supabase pgTAP contract tests. Hosted integration still needs real Person 3 hooks and team-account smoke tests before the expense and recurring flows are ready for the frontend.
+GitHub Actions runs the PGlite behavior/security tests and TypeScript checks. Hosted integration still needs real Person 3 hooks and team-account smoke tests before the expense and recurring flows are ready for the frontend. The hosted PostgreSQL contract suite is opt-in through `npm run test:db`.

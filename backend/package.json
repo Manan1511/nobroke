@@ -5,11 +5,8 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "typecheck": "tsc --noEmit",
-    "db:start": "supabase start --exclude studio,edge-runtime,logflare,vector",
-    "db:stop": "supabase stop --no-backup",
-    "db:reset": "supabase db reset",
-    "test:db": "supabase test db --local",
-    "db:types": "supabase gen types --local --schema public,api > src/database.types.ts"
+    "test:db": "supabase test db --linked",
+    "db:types": "supabase gen types --linked --schema public,api > src/database.types.ts"
   },
   "keywords": [],
   "author": "",

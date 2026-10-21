@@ -19,4 +19,4 @@ Follow the [backend setup and test instructions](backend/README.md). Its depende
 
 ## Checks
 
-From each package directory, run `npm ci` first. The frontend provides `npm run typecheck` and `npm run build`; the backend provides `npm test`, `npm run typecheck`, and `npm run test:db` (the database test needs Docker and a local Supabase stack).
+From each package directory, run `npm ci` first. The frontend provides `npm run typecheck` and `npm run build`; the backend provides `npm test` and `npm run typecheck`. Its `npm test` suite replays the migrations in PGlite. Optional PostgreSQL contract checks run against a linked Supabase project with `npm run test:db`.
