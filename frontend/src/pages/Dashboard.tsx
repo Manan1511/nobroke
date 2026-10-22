@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react"
 import { Info, Plus, ArrowLeftRight, ArrowUpRight, ArrowDownLeft, Scale, Wallet } from "lucide-react"
 import { Card, CardHeader, CardTitle, CardContent, CardAction } from "@/components/ui/card"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
@@ -7,7 +6,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
 import { PageHeader, StatusBadge, UserAvatar, label } from "@/components/shared"
 import { PersonHover } from "@/components/form-bits"
-import { BalanceChart, GroupDonut, RecentActivity, SettledRing, SpendingChart, StatCard, UpcomingBills, monthTrend } from "@/components/dashboard"
+import { BalanceChart, GroupDonut, RecentActivity, SettledRing, SpendingChart, StatCard, UpcomingBills } from "@/components/dashboard"
 import { useStore } from "@/lib/store"
 import { cn, inr } from "@/lib/utils"
 import { Magnetic } from "@/components/motion"
@@ -22,20 +21,13 @@ const SPLIT_DOT = { EQUAL: "bg-primary", EXACT: "bg-info", INCOME_RATIO: "bg-war
 const greeting = () => { const h = new Date().getHours(); return h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening" }
 
 export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => void }) {
-  const { obligations, expenses, rules, spending, me, groupName } = useStore()
-  const [loading, setLoading] = useState(true)
-  useEffect(() => { const t = setTimeout(() => setLoading(false), 600); return () => clearTimeout(t) }, [])
-
-  // Display totals only — the real numbers come from the backend.
-  const oweList = obligations.filter((o) => o.debtor_id === me && o.status !== "SETTLED")
-  const owedList = obligations.filter((o) => o.creditor_id === me && o.status !== "SETTLED")
-  const owe = oweList.reduce((s, o) => s + o.remaining_amount, 0)
-  const owed = owedList.reduce((s, o) => s + o.remaining_amount, 0)
-  const net = owed - owe
+  const { obligations, expenses, rules, me, groupName, dashboard, loading, loadError, refresh } = useStore()
+  const owe = Number(dashboard.owe_total)
+  const owed = Number(dashboard.owed_total)
+  const net = Number(dashboard.net_balance)
   const armed = rules.filter((r) => r.status === "ARMED").length
-  const trend = monthTrend(spending)
   const session = useSession()
-  const thisMonth = spending.at(-1)?.your_share ?? 0
+  const thisMonth = Number(dashboard.current_month_spend)
 
   return (
     <>
@@ -44,6 +36,11 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
           <StarBorder as="button" type="button" onClick={() => onNavigate("settle")} color="#ff4a1c" radius={999} thickness={1.5} duration={5} className="h-9 px-4! py-0! text-sm"><ArrowLeftRight className="size-4" /> Settle up</StarBorder>
           <Magnetic><Button onClick={() => onNavigate("expenses")}><Plus /> Add expense</Button></Magnetic>
         </div>} />
+
+      {loadError && <Alert variant="destructive"><Info /><AlertTitle>Could not refresh your dashboard</AlertTitle>
+        <AlertDescription className="flex flex-wrap items-center justify-between gap-2">Your account data is still protected. Check your connection and retry.
+          <Button variant="outline" size="sm" onClick={() => void refresh()}>Retry</Button>
+        </AlertDescription></Alert>}
 
       {/* Greeting: the name shimmers in the landing's orange/gold; the motto rotates. */}
       <p className="-mt-3 flex flex-wrap items-baseline gap-x-2 text-lg text-muted-foreground">
@@ -58,7 +55,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
           <Info />
           <AlertTitle>{armed} pay-when-paid rule{armed > 1 ? "s are" : " is"} waiting</AlertTitle>
           <AlertDescription>
-            When the money you're waiting on arrives, it'll be passed on automatically.
+            A confirmed receipt can create a forwarding task. Any outside payment still needs creditor confirmation.
             <Button variant="link" className="h-auto p-0 text-info" onClick={() => onNavigate("rules")}>View rules</Button>
           </AlertDescription>
         </Alert>
@@ -66,13 +63,12 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard title="You owe" value={owe} icon={ArrowUpRight} tone="negative" loading={loading}
-          note={`Across ${oweList.length} open debt${oweList.length === 1 ? "" : "s"}`} />
+          note={`Across ${dashboard.open_payable_count} open debt${dashboard.open_payable_count === 1 ? "" : "s"}`} />
         <StatCard title="You're owed" value={owed} icon={ArrowDownLeft} tone="positive" loading={loading}
-          note={`From ${owedList.length} friend${owedList.length === 1 ? "" : "s"}`} />
+          note={`Across ${dashboard.open_receivable_count} open receivable${dashboard.open_receivable_count === 1 ? "" : "s"}`} />
         <StatCard title="Net balance" value={net} icon={Scale} tone={net < 0 ? "negative" : net > 0 ? "positive" : "neutral"} loading={loading}
           note={net < 0 ? "You owe more than you're owed" : net > 0 ? "You're owed more than you owe" : "You're all square"} />
-        <StatCard title="Your spending this month" value={thisMonth} icon={Wallet} tone="neutral" loading={loading}
-          trend={trend} note={trend ? `vs ${trend.vs}` : ""} />
+        <StatCard title="Your spending this month" value={thisMonth} icon={Wallet} tone="neutral" loading={loading} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-12">
@@ -95,7 +91,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
             {loading ? <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-8" />)}</div> : (
               <Table>
                 <TableBody>
-                  {obligations.filter((o) => o.status !== "SETTLED").slice(0, 5).map((o) => {
+                  {obligations.filter((o) => (o.debtor_id === me || o.creditor_id === me) && o.status !== "SETTLED").slice(0, 5).map((o) => {
                     const iOwe = o.debtor_id === me
                     const other = iOwe ? o.creditor_id : o.debtor_id
                     return (

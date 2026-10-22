@@ -16,11 +16,9 @@ import { useStore } from "@/lib/store"
 import { cn, inr } from "@/lib/utils"
 import type { ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
-import type { SpendingMonth } from "@/types"
 import { Count, Glare, Money, Reveal, Spotlight } from "@/components/motion"
 
 const TODAY = new Date()
-const thisMonth = format(TODAY, "yyyy-MM")
 const compact = (n: number) => (Math.abs(n) >= 1000 ? `₹${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k` : `₹${n}`)
 
 interface TipRow { name: string; value: string; color?: string }
@@ -80,8 +78,7 @@ export function SpendingChart() {
   const { spending } = useStore()
   const [range, setRange] = useState("6")
   const data = spending.slice(-Number(range)).map((m) => ({ ...m, label: format(parseISO(`${m.month}-01`), "MMM") }))
-  const share = data.reduce((s, m) => s + m.your_share, 0)
-  const paid = data.reduce((s, m) => s + m.you_paid, 0)
+  // Series are already aggregated by PostgreSQL; render them without browser totals.
 
   return (
     <Spotlight><Card className="h-full">
@@ -99,16 +96,6 @@ export function SpendingChart() {
         </CardAction>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <div className="flex flex-wrap gap-x-8 gap-y-2">
-          {[["your_share", share], ["you_paid", paid]].map(([k, v]) => (
-            <div key={k} className="grid gap-0.5">
-              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="size-2.5 rounded-[3px]" style={{ background: SPEND_CONFIG[k].color }} />{SPEND_CONFIG[k].label}
-              </span>
-              <span className="text-lg font-semibold tabular-nums">{inr(v)}</span>
-            </div>
-          ))}
-        </div>
         <ChartContainer config={SPEND_CONFIG} className="aspect-auto h-64 w-full">
           <AreaChart data={data} margin={{ left: 4, right: 12, top: 8 }}>
             <defs>
@@ -138,11 +125,10 @@ export function SpendingChart() {
 /* ---------- Settled this month (TailAdmin "Monthly target" ring) ---------- */
 
 export function SettledRing() {
-  const { batches, obligations, me } = useStore()
-  const mine = batches.filter((b) => b.executed_at.startsWith(thisMonth) && b.legs.some((l) => l.from_user === me || l.to_user === me))
-  const cleared = mine.reduce((s, b) => s + b.total_cleared, 0)
-  const left = obligations.filter((o) => o.debtor_id === me && o.status !== "SETTLED").reduce((s, o) => s + o.remaining_amount, 0)
-  const pct = cleared + left > 0 ? Math.round((cleared / (cleared + left)) * 100) : 100
+  const { dashboard } = useStore()
+  const cleared = Number(dashboard.current_month_settled)
+  const left = Number(dashboard.owe_total)
+  const pct = dashboard.current_month_clear_percent
   const data = [{ name: "cleared", value: pct, fill: "var(--chart-1)" }]
 
   return (
@@ -163,11 +149,11 @@ export function SettledRing() {
           <Badge variant="outline" className="border-transparent bg-positive-soft text-positive">{inr(cleared)} cleared</Badge>
         </div>
         <p className="mt-4 max-w-64 text-center text-sm text-muted-foreground">
-          {left > 0 ? `${inr(left)} still to pay. Settle through friends to clear it without new cash.` : "You're all square this month."}
+          {left > 0 ? `${inr(left)} is still payable. A debt route can change who you owe, but moves no cash.` : "You have no open payable balance."}
         </p>
       </CardContent>
       <CardFooter className="grid grid-cols-3 divide-x border-t pt-4 text-center">
-        {[["Cleared", inr(cleared)], ["Still to pay", inr(left)], ["Settlements", mine.length]].map(([k, v]) => (
+        {[["Cleared", inr(cleared)], ["Still to pay", inr(left)], ["Settlements", dashboard.current_month_settlement_count]].map(([k, v]) => (
           <div key={k} className="grid gap-0.5 px-2">
             <span className="text-xs text-muted-foreground">{k}</span>
             <span className="text-sm font-semibold tabular-nums">{v}</span>
@@ -181,13 +167,8 @@ export function SettledRing() {
 /* ---------- Who owes whom (diverging bars) ---------- */
 
 export function BalanceChart() {
-  const { obligations, me, userName } = useStore()
-  const byPerson: Record<string, number> = {}
-  for (const o of obligations.filter((x) => x.status !== "SETTLED")) {
-    if (o.creditor_id === me) byPerson[o.debtor_id] = (byPerson[o.debtor_id] ?? 0) + o.remaining_amount
-    if (o.debtor_id === me) byPerson[o.creditor_id] = (byPerson[o.creditor_id] ?? 0) - o.remaining_amount
-  }
-  const data = Object.entries(byPerson).map(([id, value]) => ({ name: userName(id).split(" ")[0], full: userName(id), value })).sort((a, b) => b.value - a.value)
+  const { dashboardBalances } = useStore()
+  const data = dashboardBalances.map((item) => ({ name: item.display_name.split(" ")[0], full: item.display_name, value: Number(item.net_amount) }))
   const max = Math.max(...data.map((d) => Math.abs(d.value)), 1)
 
   const ValueLabel = ({ x = 0, y = 0, width = 0, height = 0, value = 0 }: { x?: number; y?: number; width?: number; height?: number; value?: number }) => {
@@ -238,13 +219,11 @@ export function BalanceChart() {
 const GROUP_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"]
 
 export function GroupDonut() {
-  const { expenses, groups } = useStore()
+  const { groupSpending } = useStore()
   // Colour follows the group (its position in your groups list), never its rank.
-  const colorOf: Record<string, string> = Object.fromEntries(groups.map((g, i) => [g.group_id, GROUP_COLORS[i % GROUP_COLORS.length]]))
-  const month = expenses.filter((e) => e.created_at.startsWith(thisMonth))
-  const data = groups.map((g) => ({ id: g.group_id, name: g.group_name, value: month.filter((e) => e.group_id === g.group_id).reduce((s, e) => s + e.total_amount, 0) }))
-    .filter((d) => d.value > 0).sort((a, b) => b.value - a.value)
-  const total = data.reduce((s, d) => s + d.value, 0)
+  const colorOf: Record<string, string> = Object.fromEntries(groupSpending.map((group, i) => [group.group_id, GROUP_COLORS[i % GROUP_COLORS.length]]))
+  const data = groupSpending.map((group) => ({ id: group.group_id, name: group.group_name, value: Number(group.amount), percent: group.share_percent })).filter((group) => group.value > 0)
+  const total = Number(groupSpending[0]?.total_amount ?? 0)
 
   return (
     <Spotlight><Card className="h-full">
@@ -275,10 +254,10 @@ export function GroupDonut() {
                   <span className="size-2.5 rounded-[3px]" style={{ background: colorOf[d.id] }} />
                   <span>{d.name}</span>
                   <span className="ml-auto font-medium tabular-nums">{inr(d.value)}</span>
-                  <span className="w-10 text-right text-xs text-muted-foreground tabular-nums">{Math.round((d.value / total) * 100)}%</span>
+                  <span className="w-10 text-right text-xs text-muted-foreground tabular-nums">{d.percent}%</span>
                 </div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div className="h-full rounded-full" style={{ width: `${(d.value / total) * 100}%`, background: colorOf[d.id] }} />
+                  <div className="h-full rounded-full" style={{ width: `${d.percent}%`, background: colorOf[d.id] }} />
                 </div>
               </li>
             ))}
@@ -373,10 +352,3 @@ export function RecentActivity({ onNavigate }: { onNavigate: (id: string) => voi
 }
 
 /* ---------- Helpers for the stat row ---------- */
-
-export function monthTrend(spending: SpendingMonth[]): Trend | null {
-  const [prev, cur] = spending.slice(-2)
-  if (!prev || !cur) return null
-  const change = ((cur.your_share - prev.your_share) / prev.your_share) * 100
-  return { up: change >= 0, good: change <= 0, text: `${Math.abs(change).toFixed(1)}%`, vs: format(parseISO(`${prev.month}-01`), "MMM") }
-}

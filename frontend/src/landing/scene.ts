@@ -5,7 +5,8 @@ import * as THREE from "three"
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js"
 import { gsap } from "gsap"
 
-export function mountLanding(root) {
+export function mountLanding(root, options = {}) {
+const animateIntro = options.animateIntro !== false;
 const disposers = []
 const on = (target, type, fn, opts) => { target.addEventListener(type, fn, opts); disposers.push(() => target.removeEventListener(type, fn, opts)) }
 const hero = root.querySelector('#hero');
@@ -401,6 +402,10 @@ function runIntro() {
 function startIntro() {
   if (introStarted) return;
   introStarted = true;
+  if (!animateIntro) {
+    introFinished = true;
+    return;
+  }
   runIntro();
 }
 const fontsReady = document.fonts?.ready ?? Promise.resolve();

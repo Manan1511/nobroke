@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import AnimatedList from "@/components/bits/AnimatedList"
 import { useStore } from "@/lib/store"
+import { apiRpc } from "@/lib/supabase"
+import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import type { LucideIcon } from "lucide-react"
 import type { AppNotification } from "@/types"
@@ -18,10 +20,19 @@ const KIND: Record<string, { icon: LucideIcon; tone: string; page: string }> = {
 }
 
 export function NotificationsMenu({ onNavigate }: { onNavigate: (id: string) => void }) {
-  const { notifications, update } = useStore()
+  const { notifications, refresh } = useStore()
   const unread = notifications.filter((n) => !n.read).length
-  const markAll = () => update("notifications", (ns) => ns.map((n) => ({ ...n, read: true })))
-  const open = (n: AppNotification) => { update("notifications", (ns) => ns.map((x) => (x.id === n.id ? { ...x, read: true } : x))); onNavigate(KIND[n.type]?.page ?? "dashboard") }
+  const markAll = async () => {
+    try { await apiRpc("mark_all_notifications_read"); await refresh() }
+    catch { toast.error("Could not mark notifications as read.") }
+  }
+  const open = async (n: AppNotification) => {
+    if (!n.read) {
+      try { await apiRpc("mark_notification_read", { p_notification_id: n.id }); await refresh() }
+      catch { toast.error("Could not update this notification.") }
+    }
+    onNavigate(KIND[n.type]?.page ?? "dashboard")
+  }
 
   return (
     <Popover>

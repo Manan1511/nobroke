@@ -1,46 +1,77 @@
-// Demo sign-in state, kept in this browser's localStorage until the backend has real accounts.
-// Nothing secret is stored: only the name and email typed into the form, never the password.
-// A first-time visitor counts as already signed in (as the demo user), so the landing page shows "Enter".
 import { useSyncExternalStore } from "react"
+import type { Session } from "@supabase/supabase-js"
+import { apiRpc, isSupabaseConfigured, supabase } from "@/lib/supabase"
 
-const KEY = "nobroke-session"
-const SIGNED_OUT = "signed-out"
-export const DEMO_USER = { name: "You", email: "you@example.com" }
-
-let memory: string | undefined // used when the browser blocks storage
-const listeners = new Set<() => void>()
-const notify = () => listeners.forEach((fn) => fn())
-
-function read() {
-  try {
-    const raw = localStorage.getItem(KEY)
-    if (raw === null) return memory === undefined ? JSON.stringify(DEMO_USER) : memory
-    return raw
-  } catch {
-    return memory === undefined ? JSON.stringify(DEMO_USER) : memory
-  }
+export interface AppSession {
+  userId: string
+  name: string
+  email: string
 }
-function write(value) {
-  memory = value
-  try { localStorage.setItem(KEY, value) } catch { /* storage blocked: kept in memory for this visit */ }
+
+interface AuthSnapshot { session: AppSession | null; loading: boolean }
+let snapshot: AuthSnapshot = { session: null, loading: true }
+const listeners = new Set<() => void>()
+const notify = () => listeners.forEach((listener) => listener())
+const subscribe = (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) }
+
+function publish(next: Partial<AuthSnapshot>) {
+  snapshot = { ...snapshot, ...next }
   notify()
 }
 
-// The raw string is the snapshot, so React only re-renders when it really changes.
-const snapshot = () => read()
-const subscribe = (fn) => {
-  listeners.add(fn)
-  const onStorage = (e) => { if (e.key === KEY) fn() }
-  window.addEventListener("storage", onStorage)
-  return () => { listeners.delete(fn); window.removeEventListener("storage", onStorage) }
+function basicSession(session: Session | null): AppSession | null {
+  if (!session?.user) return null
+  const user = session.user
+  return {
+    userId: user.id,
+    email: user.email ?? "",
+    name: String(user.user_metadata?.display_name ?? user.email?.split("@")[0] ?? "NoBroke member"),
+  }
 }
 
-const parse = (raw) => {
-  if (raw === SIGNED_OUT) return null
-  try { return JSON.parse(raw) } catch { return null }
+async function enrichProfile(session: Session | null) {
+  const basic = basicSession(session)
+  if (!basic) { publish({ session: null }); return }
+  try {
+    const profile = await apiRpc<{ username: string; display_name: string }>("get_my_profile")
+    if (snapshot.session?.userId === basic.userId) {
+      publish({ session: { ...basic, name: profile.display_name || profile.username } })
+    }
+  } catch {
+    // Keep the Auth display name if profile retrieval is temporarily unavailable.
+  }
 }
 
-export function getSession() { return parse(read()) }
-export function useSession() { return parse(useSyncExternalStore(subscribe, snapshot)) }
-export function signIn({ name, email }) { write(JSON.stringify({ name: name.trim(), email: email.trim().toLowerCase() })) }
-export function signOut() { write(SIGNED_OUT) }
+if (typeof window !== "undefined") {
+  if (!isSupabaseConfigured) publish({ loading: false })
+  else {
+    void supabase.auth.getSession().then(({ data }) => {
+      publish({ session: basicSession(data.session), loading: false })
+      void enrichProfile(data.session)
+    }).catch(() => publish({ session: null, loading: false }))
+
+    supabase.auth.onAuthStateChange((_event, session) => {
+      publish({ session: basicSession(session), loading: false })
+      // Avoid making Supabase requests inside the auth event callback.
+      window.setTimeout(() => { void enrichProfile(session) }, 0)
+    })
+  }
+}
+
+export function useSession() {
+  return useSyncExternalStore(subscribe, () => snapshot.session, () => null)
+}
+
+export function useAuthLoading() {
+  return useSyncExternalStore(subscribe, () => snapshot.loading, () => true)
+}
+
+export async function reloadProfile() {
+  const { data } = await supabase.auth.getSession()
+  await enrichProfile(data.session)
+}
+
+export async function signOut() {
+  const { error } = await supabase.auth.signOut()
+  if (error) throw new Error("sign_out_failed")
+}

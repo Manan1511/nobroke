@@ -7,6 +7,7 @@ import GlareHover from "@/components/bits/GlareHover"
 import Magnet from "@/components/bits/Magnet"
 import SpotlightCard from "@/components/bits/SpotlightCard"
 import { cn } from "@/lib/utils"
+import { moneyForDisplay } from "@/lib/money.mjs"
 
 const reduced = () => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches
 
@@ -46,8 +47,9 @@ export function PageReveal({ children, className }: { children: ReactNode; class
 }
 
 /** A rupee amount that counts up from zero. */
-export function Money({ value, className }: { value: number; className?: string }) {
-  return <CountUp to={Math.abs(value)} prefix={value < 0 ? "-₹" : "₹"} separator="," decimals={2} duration={1.1} trigger="load" className={cn("tabular-nums", className)} />
+export function Money({ value, className }: { value: string | number; className?: string }) {
+  const displayValue = moneyForDisplay(value)
+  return <CountUp to={Math.abs(displayValue)} prefix={displayValue < 0 ? "-₹" : "₹"} separator="," decimals={2} duration={1.1} trigger="load" className={cn("tabular-nums", className)} />
 }
 
 /** A whole number that counts up (percentages, counts). */

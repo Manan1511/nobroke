@@ -4,7 +4,6 @@ import { toast } from "sonner"
 import { useReactTable, getCoreRowModel, getSortedRowModel, getFilteredRowModel, getPaginationRowModel, flexRender } from "@tanstack/react-table"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -18,32 +17,32 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { PageHeader, label } from "@/components/shared"
-import { AmountInput, DatePicker, PersonHover, SimpleSelect, SplitModeToggle } from "@/components/form-bits"
-import { useStore, newId } from "@/lib/store"
-import { previewIncomeSplit, type IncomeCheck } from "@/lib/api"
+import { AmountInput, PersonHover, SimpleSelect, SplitModeToggle } from "@/components/form-bits"
+import { useStore } from "@/lib/store"
+import { apiRpc } from "@/lib/supabase"
+import { newRequestId } from "@/lib/api"
+import { isPositiveMoney } from "@/lib/money.mjs"
+import { isIncomeSplitLocallyBlocked } from "@/lib/income-split-setup.mjs"
 import type { Expense, SplitMode } from "@/types"
 import type { Column, ColumnDef } from "@tanstack/react-table"
 import type { ReactNode } from "react"
 import { inr } from "@/lib/utils"
 
-const today = () => new Date().toISOString().slice(0, 10)
-
 /** Add a new expense, or edit `expense` when given. */
 function ExpenseDialog({ expense }: { expense?: Expense }) {
-  const { groups, userName, update, me } = useStore()
+  const { groups, userName, refresh, me, myFinancials } = useStore()
   const [open, setOpen] = useState(false)
   const keepPeople = useRef(false) // set while filling the form from an existing expense
   const [groupId, setGroupId] = useState(groups[0]?.group_id ?? "")
   const [title, setTitle] = useState("")
   const [amount, setAmount] = useState("")
-  const [date, setDate] = useState(today())
   const [paidBy, setPaidBy] = useState(me)
   const [mode, setMode] = useState<SplitMode>("EQUAL")
   const [people, setPeople] = useState<string[]>([])
   const [exact, setExact] = useState<Record<string, string>>({})
-  const [note, setNote] = useState("")
-  const [incomeCheck, setIncomeCheck] = useState<IncomeCheck | null>(null)
-  const [checking, setChecking] = useState(false)
+  const [correctionReason, setCorrectionReason] = useState("")
+  const [saving, setSaving] = useState(false)
+  const requestId = useRef<string | null>(null)
 
   const group = groups.find((g) => g.group_id === groupId)
   useEffect(() => {
@@ -52,42 +51,56 @@ function ExpenseDialog({ expense }: { expense?: Expense }) {
     if (group && !group.members.includes(paidBy)) setPaidBy(group.members.includes(me) ? me : group.members[0])
   }, [groupId])
 
-  useEffect(() => {
-    if (mode !== "INCOME_RATIO") return setIncomeCheck(null)
-    setChecking(true)
-    previewIncomeSplit(people).then((r) => { setIncomeCheck(r); setChecking(false) })
-  }, [mode, people.join()])
-
-  // Form validation only (not money logic): exact amounts must add up to the total.
-  const exactSum = people.reduce((s, id) => s + (Number(exact[id]) || 0), 0)
-  const exactMismatch = mode === "EXACT" && Number(amount) > 0 && Math.abs(exactSum - Number(amount)) > 0.001
-  const incomeBlocked = mode === "INCOME_RATIO" && (checking || !incomeCheck?.ok)
-  const canSave = title.trim() && Number(amount) > 0 && people.length > 0 && !exactMismatch && !incomeBlocked
+  // PostgreSQL validates exact-share totals and calculates every split.
+  const incomeBlocked = isIncomeSplitLocallyBlocked(mode, people, me, myFinancials.configured)
+  const ownIncomeMissing = people.includes(me) && !myFinancials.configured
+  const canSave = title.trim() && isPositiveMoney(amount) && people.length > 0 && !incomeBlocked
+  useEffect(() => { requestId.current = null }, [expense?.expense_id, groupId, title, amount, paidBy, mode, people, exact, correctionReason])
 
   const fill = () => {
     if (!expense) return
     keepPeople.current = expense.group_id !== groupId
-    setGroupId(expense.group_id); setTitle(expense.title); setAmount(String(expense.total_amount)); setDate(expense.created_at)
-    setPaidBy(expense.paid_by); setMode(expense.split_mode); setNote(expense.note ?? "")
+    setGroupId(expense.group_id); setTitle(expense.title); setAmount(String(expense.total_amount))
+    setPaidBy(expense.paid_by); setMode(expense.split_mode)
     setPeople(expense.participants ?? groups.find((g) => g.group_id === expense.group_id)?.members ?? [])
     setExact(Object.fromEntries(Object.entries(expense.exact_shares ?? {}).map(([k, v]) => [k, String(v)])))
   }
-  const save = () => {
-    if (expense) {
-      const changed: Expense = { ...expense, group_id: groupId, paid_by: paidBy, title: title.trim(), total_amount: Number(amount), split_mode: mode, created_at: date, participants: people, exact_shares: mode === "EXACT" ? exact : undefined, note: note.trim() || undefined }
-      update("expenses", (list) => list.map((x) => (x.expense_id === expense.expense_id ? changed : x)))
-      toast.success("Expense updated", { description: `${title.trim()} · ${inr(amount)}` })
-      setOpen(false); return
-    }
-    update("expenses", (e) => [{ expense_id: newId("e"), group_id: groupId, paid_by: paidBy, title: title.trim(), total_amount: Number(amount), split_mode: mode, created_at: date, participants: people, ...(mode === "EXACT" && { exact_shares: exact }), ...(note.trim() && { note: note.trim() }) }, ...e])
-    toast.success("Expense added", { description: `${title.trim()} · ${inr(amount)}` })
-    setTitle(""); setAmount(""); setMode("EQUAL"); setNote(""); setExact({}); setDate(today()); setOpen(false)
+  const save = async () => {
+    setSaving(true)
+    try {
+      requestId.current ??= newRequestId()
+      const p_exact_shares = mode === "EXACT" ? Object.fromEntries(people.map((id) => [id, exact[id] ?? "0.00"])) : undefined
+      if (expense) {
+        if (!correctionReason.trim()) { toast.error("Add a correction reason."); return }
+        await apiRpc("replace_expense", {
+          p_expense_id: expense.expense_id, p_reason: correctionReason.trim(), p_group_id: groupId,
+          p_title: title.trim(), p_total_amount: amount, p_split_mode: mode, p_paid_by: paidBy,
+          p_participants: people, p_request_id: requestId.current, p_exact_shares,
+        })
+      } else {
+        await apiRpc("create_expense", {
+          p_group_id: groupId, p_title: title.trim(), p_total_amount: amount,
+          p_split_mode: mode, p_paid_by: paidBy, p_participants: people,
+          p_request_id: requestId.current, p_exact_shares,
+        })
+      }
+      await refresh()
+      toast.success(expense ? "Expense corrected" : "Expense added", { description: `${title.trim()} · ${inr(amount)}` })
+      setTitle(""); setAmount(""); setMode("EQUAL"); setExact({}); setCorrectionReason(""); setOpen(false)
+      requestId.current = null
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "request_failed"
+      toast.error(code === "income_setup_required" ? "Income split needs private setup from every participant." :
+        code === "income_split_requires_three_participants" ? "Income splits need at least three participants." :
+          code === "expense_correction_forbidden" ? "This expense already has payment or routing history and cannot be corrected." :
+            "Could not save this expense. Check the amount and split details.")
+    } finally { setSaving(false) }
   }
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (v) fill(); setOpen(v) }}>
       <DialogTrigger asChild>{expense
-        ? <Button variant="ghost" size="icon" aria-label={`Edit ${expense.title}`}><Pencil /></Button>
+        ? <Button variant="ghost" size="icon" aria-label={`Correct ${expense.title}`}><Pencil /></Button>
         : <Button><Plus /> Add expense</Button>}</DialogTrigger>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
@@ -112,10 +125,6 @@ function ExpenseDialog({ expense }: { expense?: Expense }) {
             <Field>
               <FieldLabel htmlFor="amt">Amount</FieldLabel>
               <AmountInput id="amt" value={amount} onChange={(e) => setAmount(e.target.value)} />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="date">Date</FieldLabel>
-              <DatePicker id="date" value={date} onChange={setDate} />
             </Field>
           </div>
 
@@ -142,39 +151,27 @@ function ExpenseDialog({ expense }: { expense?: Expense }) {
             </div>
           </FieldSet>
 
-          {exactMismatch && (
-            <Alert variant="destructive">
-              <TriangleAlert />
-              <AlertTitle>Amounts don't add up</AlertTitle>
-              <AlertDescription>The shares total {inr(exactSum)}, but the expense is {inr(amount)}.</AlertDescription>
-            </Alert>
-          )}
-
-          {mode === "INCOME_RATIO" && (checking ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Checking split…</div>
-          ) : incomeCheck?.ok ? (
+          {mode === "INCOME_RATIO" && !incomeBlocked ? (
             <Alert className="border-positive/25 bg-positive-soft [&>svg]:text-positive">
               <ShieldCheck />
               <AlertTitle>Incomes stay private</AlertTitle>
-              <AlertDescription>Each person's share is worked out from income bands on the server. Nobody sees anyone else's income.</AlertDescription>
+              <AlertDescription>PostgreSQL calculates shares from private bands. Nobody sees another person's income or band.</AlertDescription>
             </Alert>
           ) : (
-            <Alert variant="destructive">
+            mode === "INCOME_RATIO" && <Alert variant="destructive">
               <TriangleAlert />
-              <AlertTitle>Add at least 3 people</AlertTitle>
-              <AlertDescription>With only 2 people, each could work out the other's income from the split. Pick another split or add someone.</AlertDescription>
+              <AlertTitle>{people.length < 3 ? "Add at least 3 people" : ownIncomeMissing ? "Set up your private income first" : "Participant setup required"}</AlertTitle>
+              <AlertDescription>{people.length < 3 ? "Income splits need at least three people." : ownIncomeMissing ? "Your private income band is needed because you are included in this split." : "Each selected participant needs a private income band. NoBroke will not reveal whose setup is missing."}</AlertDescription>
             </Alert>
-          ))}
+          )}
 
-          <Field>
-            <FieldLabel htmlFor="note">Note (optional)</FieldLabel>
-            <Textarea id="note" value={note} onChange={(e) => setNote(e.target.value)} />
-          </Field>
+          {expense && <Field><FieldLabel htmlFor="correction-reason">Correction reason</FieldLabel><Input id="correction-reason" value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} placeholder="Why does this expense need a correction?" /></Field>}
+
         </FieldGroup>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button disabled={!canSave} onClick={save}>{expense ? "Save changes" : "Add expense"}</Button>
+          <Button disabled={!canSave || saving || (expense && !correctionReason.trim())} onClick={() => void save()}>{saving ? <Spinner /> : null}{expense ? "Void and replace" : "Add expense"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -182,20 +179,33 @@ function ExpenseDialog({ expense }: { expense?: Expense }) {
 }
 
 function DeleteExpense({ expense }: { expense: Expense }) {
-  const { update } = useStore()
+  const { refresh } = useStore()
+  const [reason, setReason] = useState("")
+  const [open, setOpen] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const requestId = useRef<string | null>(null)
+  useEffect(() => { requestId.current = null }, [expense.expense_id, reason])
   return (
-    <AlertDialog>
+    <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild><Button variant="ghost" size="icon" aria-label={`Delete ${expense.title}`}><Trash2 /></Button></AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete "{expense.title}"?</AlertDialogTitle>
-          <AlertDialogDescription>Everyone's balances from this expense will be removed. This can't be undone.</AlertDialogDescription>
+        <AlertDialogTitle>Void "{expense.title}"?</AlertDialogTitle>
+          <AlertDialogDescription>The expense stays in history. Voiding is blocked after payment or routing activity.</AlertDialogDescription>
+          <Input value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason for voiding" aria-label="Reason for voiding" />
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>Keep it</AlertDialogCancel>
-          <AlertDialogAction className="bg-destructive text-primary-foreground hover:bg-destructive/90" onClick={() => {
-            update("expenses", (x) => x.filter((y) => y.expense_id !== expense.expense_id)); toast.success("Expense deleted")
-          }}>Delete expense</AlertDialogAction>
+          <AlertDialogAction disabled={!reason.trim() || saving} className="bg-destructive text-primary-foreground hover:bg-destructive/90" onClick={(event) => {
+            event.preventDefault()
+            requestId.current ??= newRequestId()
+            setSaving(true)
+            void apiRpc("void_expense_request", { p_expense_id: expense.expense_id, p_reason: reason.trim(), p_request_id: requestId.current }).then(async () => {
+              await refresh(); toast.success("Expense voided"); setOpen(false); setReason(""); requestId.current = null
+            }).catch((error) => toast.error(error instanceof Error && error.message === "idempotency_conflict"
+              ? "This retry ID was used with different details. Change the reason and retry."
+              : "This expense cannot be voided after payment or routing activity.")).finally(() => setSaving(false))
+          }}>Void expense</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
@@ -221,7 +231,7 @@ export default function Expenses() {
     { accessorKey: "paid_by", header: "Paid by", cell: ({ getValue }) => <PersonHover id={getValue<string>()} /> },
     { accessorKey: "split_mode", header: "Split", cell: ({ getValue }) => label(getValue<string>()) },
     { accessorKey: "total_amount", header: ({ column }) => <div className="text-right"><SortHeader column={column} className="ml-0 -mr-2">Total</SortHeader></div>,
-      cell: ({ getValue }) => <div className="text-right tabular-nums">{inr(getValue())}</div> },
+      cell: ({ getValue }) => <div className="text-right tabular-nums">{inr(getValue<string>())}</div> },
     { id: "actions", header: "", cell: ({ row }) => <div className="flex justify-end"><ExpenseDialog expense={row.original} /><DeleteExpense expense={row.original} /></div> },
   ], [groupName])
 

@@ -1,76 +1,96 @@
-// Log in / Sign up panel on the landing page, in the landing's own look (frosted cream glass, pill fields).
-// Demo only: it saves the name and email in this browser (see lib/session.js). The password is checked
-// for length and then dropped; the backend team swaps this for real accounts.
 import { useEffect, useRef, useState, type FormEvent } from "react"
-import { signIn } from "@/lib/session"
+import { toast } from "sonner"
+import { isSupabaseConfigured, supabase } from "@/lib/supabase"
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+export type AuthMode = "login" | "recovery"
 
-export type AuthMode = "login" | "signup"
-
-export function AuthPanel({ mode, onModeChange, onClose, onDone }: { mode: AuthMode; onModeChange: (m: AuthMode) => void; onClose: () => void; onDone: () => void }) {
-  const [name, setName] = useState("")
+export function AuthPanel({ mode, onModeChange, onClose, onDone }: {
+  mode: AuthMode
+  onModeChange: (mode: AuthMode) => void
+  onClose: () => void
+  onDone: () => void
+}) {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [busy, setBusy] = useState(false)
   const [touched, setTouched] = useState(false)
+  const [sent, setSent] = useState(false)
   const panel = useRef<HTMLDivElement>(null)
-  const signup = mode === "signup"
+  const recovery = mode === "recovery"
 
   useEffect(() => {
     panel.current?.querySelector("input")?.focus()
-    const onKey = (e) => { if (e.key === "Escape") onClose() }
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose() }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
   }, [mode, onClose])
 
-  const errors = {
-    name: signup && !name.trim() ? "Tell us what to call you." : "",
-    email: !EMAIL.test(email.trim()) ? "Enter an email like name@example.com." : "",
-    password: password.length < 8 ? "Use at least 8 characters." : "",
-  }
-  const valid = !errors.name && !errors.email && !errors.password
+  const emailError = !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())
+    ? "Enter a valid email address." : ""
 
-  const submit = (e: FormEvent) => {
-    e.preventDefault()
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
     setTouched(true)
-    if (!valid) return
-    signIn({ name: signup ? name : email.split("@")[0], email })
-    onDone()
+    if (emailError || (!recovery && password.length < 8) || !isSupabaseConfigured) return
+    setBusy(true)
+    try {
+      if (recovery) {
+        const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+          redirectTo: `${window.location.origin}/auth/reset`,
+        })
+        if (error) throw error
+        setSent(true)
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+        if (error) throw error
+        onDone()
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "request_failed"
+      toast.error(message === "Invalid login credentials"
+        ? "Email or password is incorrect."
+        : message.toLowerCase().includes("email not confirmed")
+          ? "Confirm your email before logging in."
+          : "We could not complete that request. Check your details and try again.")
+    } finally { setBusy(false) }
   }
 
   return (
-    <div className="auth-backdrop" onPointerDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
+    <div className="auth-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
       <div ref={panel} className="auth-panel" role="dialog" aria-modal="true" aria-labelledby="auth-title">
         <button type="button" className="auth-close" onClick={onClose} aria-label="Close"><span></span><span></span></button>
-        <h2 id="auth-title" className="auth-title">{signup ? "Sign up" : "Log in"}</h2>
-        <p className="auth-lede">{signup ? "Split bills with friends and settle through people you trust." : "Welcome back. Pick up where you left off."}</p>
+        <h2 id="auth-title" className="auth-title">{recovery ? "Reset password" : "Log in"}</h2>
+        <p className="auth-lede">{recovery
+          ? "We’ll email a secure reset link to your account."
+          : "Welcome back. NoBroke access is limited to invited team members."}</p>
 
-        <form className="auth-form" onSubmit={submit} noValidate>
-          {signup && (
+        {!isSupabaseConfigured ? (
+          <p className="auth-note" role="alert">NoBroke is not connected yet. Add the Supabase URL and publishable key to the frontend environment.</p>
+        ) : sent ? (
+          <p className="auth-note" role="status">If that account exists, a password reset link is on its way.</p>
+        ) : (
+          <form className="auth-form" onSubmit={submit} noValidate>
             <label className="auth-field">
-              <span>NAME</span>
-              <input id="auth-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" aria-invalid={touched && !!errors.name} />
-              {touched && errors.name && <em>{errors.name}</em>}
+              <span>EMAIL</span>
+              <input id="auth-email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" inputMode="email" aria-invalid={touched && !!emailError} />
+              {touched && emailError && <em>{emailError}</em>}
             </label>
-          )}
-          <label className="auth-field">
-            <span>EMAIL</span>
-            <input id="auth-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" inputMode="email" aria-invalid={touched && !!errors.email} />
-            {touched && errors.email && <em>{errors.email}</em>}
-          </label>
-          <label className="auth-field">
-            <span>PASSWORD</span>
-            <input id="auth-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={signup ? "new-password" : "current-password"} aria-invalid={touched && !!errors.password} />
-            {touched && errors.password && <em>{errors.password}</em>}
-          </label>
-          <button type="submit" className="auth-submit">{signup ? "CREATE ACCOUNT" : "LOG IN"}</button>
-        </form>
+            {!recovery && <label className="auth-field">
+              <span>PASSWORD</span>
+              <input id="auth-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" aria-invalid={touched && password.length < 8} />
+              {touched && password.length < 8 && <em>Enter your password.</em>}
+            </label>}
+            <button type="submit" className="auth-submit" disabled={busy}>{busy ? "PLEASE WAIT…" : recovery ? "SEND RESET LINK" : "LOG IN"}</button>
+          </form>
+        )}
 
         <p className="auth-switch">
-          {signup ? "Already have an account? " : "New to NoBroke? "}
-          <button type="button" onClick={() => { setTouched(false); onModeChange(signup ? "login" : "signup") }}>{signup ? "Log in" : "Sign up"}</button>
+          {recovery ? "Remembered it? " : "Need a password reset? "}
+          <button type="button" onClick={() => { setTouched(false); setSent(false); onModeChange(recovery ? "login" : "recovery") }}>
+            {recovery ? "Log in" : "Reset password"}
+          </button>
         </p>
-        <p className="auth-note">Demo: your name and email stay in this browser. No account is created yet.</p>
+        <p className="auth-note">New accounts join through a team invitation.</p>
       </div>
     </div>
   )

@@ -69,27 +69,9 @@ async function createDatabase({ installHooks = false } = {}) {
 }
 
 async function installTestHooks(db) {
-  await db.exec(`
-    CREATE SCHEMA test_hooks;
-    CREATE TABLE test_hooks.obligation_calls (expense_id uuid PRIMARY KEY);
-    CREATE TABLE test_hooks.void_calls (expense_id uuid PRIMARY KEY);
-    CREATE FUNCTION private.post_expense_obligations(uuid) RETURNS void
-    LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, test_hooks AS $$
-      BEGIN INSERT INTO test_hooks.obligation_calls VALUES ($1); END
-    $$;
-    CREATE FUNCTION private.void_expense_obligations(uuid) RETURNS void
-    LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, test_hooks AS $$
-      BEGIN INSERT INTO test_hooks.void_calls VALUES ($1); END
-    $$;
-    CREATE FUNCTION private.assert_member_can_leave(uuid, uuid) RETURNS void
-    LANGUAGE sql SECURITY DEFINER SET search_path = pg_catalog AS $$ SELECT $$;
-    REVOKE ALL ON FUNCTION private.post_expense_obligations(uuid) FROM PUBLIC, anon, authenticated;
-    REVOKE ALL ON FUNCTION private.void_expense_obligations(uuid) FROM PUBLIC, anon, authenticated;
-    REVOKE ALL ON FUNCTION private.assert_member_can_leave(uuid, uuid) FROM PUBLIC, anon, authenticated;
-    GRANT EXECUTE ON FUNCTION private.post_expense_obligations(uuid) TO nobroke_executor;
-    GRANT EXECUTE ON FUNCTION private.void_expense_obligations(uuid) TO nobroke_executor;
-    GRANT EXECUTE ON FUNCTION private.assert_member_can_leave(uuid, uuid) TO nobroke_executor;
-  `);
+  // The real private hooks are installed by migrations. Kept as an explicit
+  // call-site marker for older integration fixtures that used isolated doubles.
+  void db;
 }
 
 async function actAs(db, userId, action) {
@@ -145,6 +127,29 @@ test('signups create minimal private profiles without accepting auth metadata as
   }
 });
 
+test('Person 3 API wrappers pin their runtime search path', async () => {
+  const db = await createDatabase();
+  try {
+    const { rows } = await db.query(`
+      SELECT p.proname AS function_name
+      FROM pg_catalog.pg_proc AS p
+      JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'api'
+        AND p.proname = ANY($1::text[])
+        AND NOT COALESCE(p.proconfig @> ARRAY['search_path=pg_catalog'], false)
+      ORDER BY p.proname`, [[
+      'confirm_payment', 'block_friend', 'list_my_obligations', 'report_payment',
+      'list_cycle_net_batches', 'list_route_history', 'execute_route', 'remind_debtor',
+      'request_friendship', 'create_pay_when_paid_rule', 'cancel_pay_when_paid_rule',
+      'preview_pay_when_paid_rule', 'report_task_payment', 'list_my_pay_when_paid_rules',
+      'list_forwarding_tasks', 'list_my_friends', 'list_payment_reports', 'reject_payment',
+      'list_settlement_history', 'cancel_payment', 'preview_route', 'get_group_balances',
+      'respond_friendship', 'set_trust_limit',
+    ]]);
+    assert.deepEqual(rows, []);
+  } finally { await db.close(); }
+});
+
 test('group creation gives caller ownership and exposes no direct financial table reads', async () => {
   const db = await createDatabase();
   try {
@@ -164,8 +169,8 @@ test('group creation gives caller ownership and exposes no direct financial tabl
   }
 });
 
-test('test obligation hooks stay inaccessible to browser roles', async () => {
-  const db = await createDatabase({ installHooks: true });
+test('production obligation hooks stay inaccessible to browser roles', async () => {
+  const db = await createDatabase();
   try {
     const { rows } = await db.query(`
       SELECT has_function_privilege('authenticated', 'private.post_expense_obligations(uuid)', 'EXECUTE') AS browser_can_post,
@@ -300,8 +305,9 @@ test('expense retry is idempotent, largest-remainder shares conserve paise, and 
       SELECT sum(share_amount)::text AS total FROM app.expense_splits WHERE expense_id = $1`,
     [expenseId]);
     assert.equal(totals[0].total, '100.00');
-    const { rows: hookCalls } = await db.query('SELECT count(*)::int AS count FROM test_hooks.obligation_calls');
-    assert.deepEqual(hookCalls, [{ count: 1 }]);
+    const { rows: postedObligations } = await db.query(`
+      SELECT count(*)::int AS count FROM app.obligations WHERE source_expense_id = $1`, [expenseId]);
+    assert.equal(postedObligations[0].count, 2);
     const { rows: payerOutsideSplit } = await rpc(db, firstUser, 'create_expense', {
       ...input,
       p_title: 'Payer outside split',
@@ -418,8 +424,10 @@ test('void and replace keep immutable expense history, reject changed retries, a
     assert.equal(originalRow.correction_reason, 'Corrected receipt total');
     assert.equal(replacementRow.status, 'POSTED');
     assert.equal(replacementRow.replaces_expense_id, originalId);
-    const { rows: voidCalls } = await db.query('SELECT count(*)::int AS count FROM test_hooks.void_calls');
-    assert.deepEqual(voidCalls, [{ count: 1 }]);
+    const { rows: voidedObligations } = await db.query(`
+      SELECT count(*)::int AS count FROM app.obligations
+      WHERE source_expense_id = $1 AND status = 'VOIDED'`, [originalId]);
+    assert.equal(voidedObligations[0].count, 1);
   } finally {
     await db.close();
   }
@@ -465,15 +473,18 @@ test('income split requires three configured members and uses private weights at
   }
 });
 
-test('expense writes roll back completely when the Person 3 obligation hook is not integrated', async () => {
+test('expense writes roll back completely when an integrated Person 3 hook fails', async () => {
   const db = await createDatabase();
   try {
     const groupId = await createGroup(db);
+    await db.exec(`CREATE OR REPLACE FUNCTION private.post_expense_obligations(p_expense_id uuid)
+      RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$
+      BEGIN RAISE EXCEPTION 'simulated_hook_failure' USING ERRCODE = 'P0001'; END $$`);
     await assert.rejects(rpc(db, firstUser, 'create_expense', {
       p_group_id: groupId, p_title: 'Must roll back', p_total_amount: '12.00',
       p_split_mode: 'EQUAL', p_paid_by: firstUser, p_participants: [firstUser],
       p_request_id: '94088e42-e9a8-40dd-a736-11ca9d88e2c0',
-    }), /financial_integration_not_ready/i);
+    }), /simulated_hook_failure/i);
     for (const table of ['expenses', 'expense_splits', 'expense_audit']) {
       const { rows } = await db.query(`SELECT count(*)::int AS count FROM app.${table}`);
       assert.equal(rows[0].count, 0, `${table} must roll back with the missing hook`);
@@ -510,6 +521,7 @@ test('recurring worker continues after sanitized failures, retries the same date
   try {
     const groupId = await createGroup(db);
     await addMember(db, groupId, secondUser);
+    await addMember(db, groupId, thirdUser);
     const { rows: todayRows } = await db.query('SELECT private.billing_date()::text AS today');
     const startDate = new Date(`${todayRows[0].today}T00:00:00Z`);
     startDate.setUTCDate(startDate.getUTCDate() - 6);
@@ -524,38 +536,45 @@ test('recurring worker continues after sanitized failures, retries the same date
       p_frequency: 'WEEKLY',
       p_start_date: firstStart,
       p_paid_by: firstUser,
-      p_participants: [firstUser, secondUser],
+      p_participants: [firstUser],
     };
     const { rows: firstTemplate } = await rpc(db, firstUser, 'create_recurring_template', templateInputs);
     const { rows: secondTemplate } = await rpc(db, firstUser, 'create_recurring_template', {
       ...templateInputs, p_title: 'Internet', p_start_date: secondStart,
+      p_participants: [thirdUser],
     });
     const firstId = firstTemplate[0].result.template_id;
     const secondId = secondTemplate[0].result.template_id;
+
+    await db.query(`UPDATE app.group_memberships SET removed_at = clock_timestamp(), removed_by = $3
+      WHERE group_id = $1 AND user_id = $2 AND removed_at IS NULL`, [groupId, thirdUser, firstUser]);
 
     const { rows: failedBatch } = await db.query('SELECT private.process_due_recurring_bills(50)::int AS count');
     assert.equal(failedBatch[0].count, 2);
     const { rows: failures } = await db.query(`
       SELECT template_id, status, billing_cycle_date::text AS billing_cycle_date, error_code
       FROM app.recurring_billing_runs ORDER BY template_id`);
-    assert.deepEqual(failures, [firstId, secondId].sort().map((template_id) => ({
-      template_id, status: 'FAILED', billing_cycle_date: dueDate,
-      error_code: 'financial_integration_not_ready',
-    })));
+    assert.deepEqual(failures, [
+      { template_id: firstId, status: 'SUCCESS', billing_cycle_date: dueDate, error_code: null },
+      { template_id: secondId, status: 'FAILED', billing_cycle_date: dueDate,
+        error_code: 'participants_must_be_active_group_members' },
+    ].sort((a, b) => a.template_id.localeCompare(b.template_id)));
     const { rows: beforeRetry } = await db.query(`
       SELECT next_run_date::text AS next_run_date, failed_date::text AS failed_date
-      FROM app.recurring_templates WHERE template_id = $1`, [firstId]);
+      FROM app.recurring_templates WHERE template_id = $1`, [secondId]);
     assert.deepEqual(beforeRetry, [{ next_run_date: dueDate, failed_date: dueDate }]);
 
-    await installTestHooks(db);
+    await db.query(`UPDATE app.group_memberships SET removed_at = NULL, removed_by = NULL
+      WHERE group_id = $1 AND user_id = $2 AND removed_at IS NOT NULL`, [groupId, thirdUser]);
     const { rows: retryBatch } = await db.query('SELECT private.process_due_recurring_bills(50)::int AS count');
-    assert.equal(retryBatch[0].count, 2);
+    assert.equal(retryBatch[0].count, 1);
     const { rows: runs } = await db.query(`
       SELECT template_id, status, count(*) OVER (PARTITION BY template_id)::int AS run_count
       FROM app.recurring_billing_runs ORDER BY template_id`);
-    assert.deepEqual(runs, [firstId, secondId].sort().map((template_id) => ({
-      template_id, status: 'SUCCESS', run_count: 1,
-    })));
+    assert.deepEqual(runs, [
+      { template_id: firstId, status: 'SUCCESS', run_count: 1 },
+      { template_id: secondId, status: 'SUCCESS', run_count: 1 },
+    ].sort((a, b) => a.template_id.localeCompare(b.template_id)));
     const { rows: recurringExpenses } = await db.query(`
       SELECT source_template_id, billing_cycle_date::text AS billing_cycle_date,
         total_amount::text AS total_amount
@@ -644,4 +663,580 @@ test('recurring edits are versioned, departed creators lose control, and active 
   } finally {
     await db.close();
   }
+});
+
+test('profile RPC edits caller identity without returning account email', async () => {
+  const db = await createDatabase();
+  try {
+    const { rows: initialRows } = await rpc(db, firstUser, 'get_my_profile');
+    assert.equal(initialRows[0].result.user_id, firstUser);
+    assert.equal(initialRows[0].result.username, 'one');
+    assert.equal('email' in initialRows[0].result, false);
+
+    const { rows: updatedRows } = await rpc(db, firstUser, 'update_my_profile', {
+      p_username: 'one-new',
+      p_display_name: 'One New',
+    });
+    assert.deepEqual(updatedRows[0].result, {
+      user_id: firstUser,
+      username: 'one-new',
+      display_name: 'One New',
+    });
+    await assert.rejects(
+      rpc(db, firstUser, 'update_my_profile', {
+        p_username: 'two',
+        p_display_name: 'Collision',
+      }),
+      /username_unavailable/i,
+    );
+
+    const { rows: peerRows } = await rpc(db, secondUser, 'get_my_profile');
+    assert.equal(peerRows[0].result.user_id, secondUser);
+    assert.equal(peerRows[0].result.username, 'two');
+  } finally {
+    await db.close();
+  }
+});
+
+test('notification preferences and inbox stay private and mark only caller notifications read', async () => {
+  const db = await createDatabase();
+  try {
+    const { rows: defaults } = await rpc(db, firstUser, 'get_notification_preferences');
+    assert.deepEqual(defaults[0].result, {
+      reminders: true,
+      cascades: true,
+      recurring: false,
+      social: true,
+    });
+    await rpc(db, firstUser, 'update_notification_preferences', {
+      p_preferences: { reminders: false, cascades: true, recurring: true, social: false },
+    });
+    const { rows: saved } = await rpc(db, firstUser, 'get_notification_preferences');
+    assert.deepEqual(saved[0].result, {
+      reminders: false,
+      cascades: true,
+      recurring: true,
+      social: false,
+    });
+
+    await db.query(`
+      INSERT INTO app.notifications (user_id, category, kind, title, body, dedupe_key)
+      VALUES
+        ($1, 'REMINDERS', 'PAYMENT_REMINDER', 'Payment reminder', 'A payment needs attention.', 'reminder:1'),
+        ($1, 'CASCADES', 'FORWARDING_TASK', 'Forwarding task', 'Confirm payment first.', 'task:1'),
+        ($2, 'SOCIAL', 'FRIEND_REQUEST', 'Friend request', 'A request arrived.', 'friend:1')
+    `, [firstUser, secondUser]);
+
+    const { rows: count } = await rpc(db, firstUser, 'get_notification_unread_count');
+    assert.equal(count[0].result, 2);
+    const { rows: page } = await rpc(db, firstUser, 'list_notifications', {
+      p_after_created_at: null,
+      p_after_id: null,
+      p_limit: 1,
+    });
+    assert.equal(page[0].result.length, 1);
+    assert.equal('email' in page[0].result[0], false);
+    const notificationId = page[0].result[0].notification_id;
+    await rpc(db, firstUser, 'mark_notification_read', { p_notification_id: notificationId });
+    const { rows: afterOne } = await rpc(db, firstUser, 'get_notification_unread_count');
+    assert.equal(afterOne[0].result, 1);
+    await rpc(db, firstUser, 'mark_all_notifications_read');
+    const { rows: afterAll } = await rpc(db, firstUser, 'get_notification_unread_count');
+    assert.equal(afterAll[0].result, 0);
+
+    const { rows: grants } = await db.query(`
+      SELECT has_table_privilege('authenticated', 'app.notifications', 'SELECT') AS can_read_notifications,
+        has_table_privilege('authenticated', 'app.notification_preferences', 'SELECT') AS can_read_preferences
+    `);
+    assert.deepEqual(grants, [{ can_read_notifications: false, can_read_preferences: false }]);
+  } finally {
+    await db.close();
+  }
+});
+
+test('dashboard and spending history return server aggregates as decimal strings', async () => {
+  const db = await createDatabase({ installHooks: true });
+  try {
+    const groupId = await createGroup(db);
+    await addMember(db, groupId, secondUser);
+    await addMember(db, groupId, thirdUser);
+    await rpc(db, firstUser, 'create_expense', {
+      p_group_id: groupId,
+      p_title: 'Shared dinner',
+      p_total_amount: '90.00',
+      p_split_mode: 'EQUAL',
+      p_paid_by: firstUser,
+      p_participants: [firstUser, secondUser, thirdUser],
+      p_request_id: 'a88e5ac7-f149-49a3-9364-0dfd836af77f',
+    });
+
+    const { rows: historyRows } = await rpc(db, firstUser, 'list_my_spending', { p_months: 1 });
+    assert.equal(historyRows[0].result.length, 1);
+    assert.equal(historyRows[0].result[0].your_share, '30.00');
+    assert.equal(historyRows[0].result[0].you_paid, '90.00');
+    assert.equal(historyRows[0].result[0].group_total, '90.00');
+
+    const { rows: summaryRows } = await rpc(db, firstUser, 'get_dashboard_summary');
+    assert.equal(summaryRows[0].result.group_count, 1);
+    assert.equal(summaryRows[0].result.current_month_spend, '30.00');
+    assert.equal(summaryRows[0].result.current_month_paid, '90.00');
+    assert.equal(summaryRows[0].result.current_month_group_total, '90.00');
+  } finally {
+    await db.close();
+  }
+});
+
+test('notification creation respects optional categories and deduplicates repeated events', async () => {
+  const db = await createDatabase();
+  try {
+    const recurringInput = [
+      firstUser, 'RECURRING', 'RECURRING_BILL', 'Bill added',
+      'A scheduled bill was added.', 'recurring:template:date',
+    ];
+    const { rows: mutedDefault } = await db.query(
+      'SELECT private.enqueue_notification($1, $2, $3, $4, $5, $6) AS notification_id',
+      recurringInput,
+    );
+    assert.equal(mutedDefault[0].notification_id, null);
+
+    await rpc(db, firstUser, 'update_notification_preferences', {
+      p_preferences: { reminders: false, cascades: true, recurring: true, social: true },
+    });
+    const { rows: inserted } = await db.query(
+      'SELECT private.enqueue_notification($1, $2, $3, $4, $5, $6) AS notification_id',
+      recurringInput,
+    );
+    assert.match(inserted[0].notification_id, /^[0-9a-f-]{36}$/i);
+    const { rows: duplicate } = await db.query(
+      'SELECT private.enqueue_notification($1, $2, $3, $4, $5, $6) AS notification_id',
+      recurringInput,
+    );
+    assert.equal(duplicate[0].notification_id, null);
+
+    const { rows: mutedReminder } = await db.query(
+      'SELECT private.enqueue_notification($1, $2, $3, $4, $5, $6) AS notification_id',
+      [firstUser, 'REMINDERS', 'PAYMENT_REMINDER', 'Reminder', 'Optional reminder.', 'reminder:obligation'],
+    );
+    assert.equal(mutedReminder[0].notification_id, null);
+  } finally {
+    await db.close();
+  }
+});
+
+test('expense posting creates source-linked obligations and group balances conserve value', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db);
+    await addMember(db, groupId, secondUser);
+    await addMember(db, groupId, thirdUser);
+    const { rows } = await rpc(db, firstUser, 'create_expense', {
+      p_group_id: groupId, p_title: 'Shared meal', p_total_amount: '100.00',
+      p_split_mode: 'EQUAL', p_paid_by: firstUser,
+      p_participants: [firstUser, secondUser, thirdUser],
+      p_request_id: '0a0c7791-48fc-40fd-bb0f-a4a3ee3503ad',
+    });
+    const expenseId = rows[0].result.expense_id;
+    const { rows: obligations } = await db.query(`
+      SELECT debtor_user_id, creditor_user_id, source_expense_id,
+        original_amount::text AS original_amount, remaining_amount::text AS remaining_amount
+      FROM app.obligations WHERE source_expense_id = $1 ORDER BY debtor_user_id`, [expenseId]);
+    assert.equal(obligations.length, 2);
+    assert.ok(obligations.every((row) => row.creditor_user_id === firstUser));
+    assert.ok(obligations.every((row) => row.source_expense_id === expenseId));
+    assert.deepEqual(obligations.map((row) => row.original_amount), ['33.34', '33.33']);
+    const { rows: balances } = await rpc(db, firstUser, 'get_group_balances', { p_group_id: groupId });
+    assert.equal(balances[0].result.reduce((sum, row) => sum + Number(row.net_amount), 0), 0);
+  } finally { await db.close(); }
+});
+
+test('debtor payment reports reserve debt until creditor confirms, with retry-safe settlement', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db);
+    await addMember(db, groupId, secondUser);
+    const { rows: expenseRows } = await rpc(db, firstUser, 'create_expense', {
+      p_group_id: groupId, p_title: 'Dinner', p_total_amount: '80.00',
+      p_split_mode: 'EQUAL', p_paid_by: firstUser, p_participants: [firstUser, secondUser],
+      p_request_id: 'c7f7fb2d-a87f-494c-9d62-4bce5c6438b2',
+    });
+    const { rows: debtRows } = await db.query(`
+      SELECT obligation_id FROM app.obligations WHERE source_expense_id = $1`,
+    [expenseRows[0].result.expense_id]);
+    const obligationId = debtRows[0].obligation_id;
+    const paymentInput = {
+      p_obligation_id: obligationId, p_amount: '25.00',
+      p_request_id: '93b78ac3-43dd-41f9-8d43-a4716062c5c4',
+    };
+    const { rows: reports } = await rpc(db, secondUser, 'report_payment', paymentInput);
+    const paymentId = reports[0].result.payment_id;
+    const { rows: retry } = await rpc(db, secondUser, 'report_payment', paymentInput);
+    assert.equal(retry[0].result.payment_id, paymentId);
+    await assert.rejects(rpc(db, secondUser, 'report_payment', {
+      ...paymentInput, p_amount: '26.00',
+    }), /idempotency_conflict/i);
+    const { rows: before } = await db.query(`
+      SELECT remaining_amount::text AS remaining_amount,
+        (SELECT sum(amount) FROM app.payment_reports WHERE obligation_id = $1 AND status = 'PENDING')::text AS reserved
+      FROM app.obligations WHERE obligation_id = $1`, [obligationId]);
+    assert.deepEqual(before, [{ remaining_amount: '40.00', reserved: '25.00' }]);
+    await assert.rejects(rpc(db, secondUser, 'confirm_payment', { p_payment_id: paymentId }), /creditor_required/i);
+    const { rows: confirmed } = await rpc(db, firstUser, 'confirm_payment', { p_payment_id: paymentId });
+    assert.equal(confirmed[0].result.status, 'CONFIRMED');
+    await rpc(db, firstUser, 'confirm_payment', { p_payment_id: paymentId });
+    const { rows: after } = await db.query(`
+      SELECT remaining_amount::text AS remaining_amount,
+        (SELECT count(*)::int FROM app.settlement_records WHERE payment_id = $1) AS settlements
+      FROM app.obligations WHERE obligation_id = $2`, [paymentId, obligationId]);
+    assert.deepEqual(after, [{ remaining_amount: '15.00', settlements: 1 }]);
+  } finally { await db.close(); }
+});
+
+test('friend trust is directional and a route consumes consented exposure while preserving lineage', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db);
+    await addMember(db, groupId, secondUser);
+    await addMember(db, groupId, thirdUser);
+    const { rows: first } = await rpc(db, firstUser, 'create_expense', {
+      p_group_id: groupId, p_title: 'Original', p_total_amount: '100.00',
+      p_split_mode: 'EXACT', p_paid_by: thirdUser, p_participants: [firstUser, thirdUser],
+      p_request_id: '250bcd0e-9291-42a2-8d44-3f76f284d986',
+      p_exact_shares: { [firstUser]: '100.00', [thirdUser]: '0.00' },
+    });
+    const { rows: second } = await rpc(db, thirdUser, 'create_expense', {
+      p_group_id: groupId, p_title: 'Intermediary payable', p_total_amount: '80.00',
+      p_split_mode: 'EXACT', p_paid_by: secondUser, p_participants: [thirdUser, secondUser],
+      p_request_id: 'e101fe98-a0f3-4854-8930-a3425bb8ef7c',
+      p_exact_shares: { [thirdUser]: '80.00', [secondUser]: '0.00' },
+    });
+    const { rows: request } = await rpc(db, firstUser, 'request_friendship', { p_username: 'two' });
+    await rpc(db, secondUser, 'respond_friendship', {
+      p_friendship_id: request[0].result.friendship_id, p_accept: true,
+    });
+    await rpc(db, secondUser, 'set_trust_limit', {
+      p_debtor_user_id: firstUser, p_limit_amount: '80.00',
+    });
+    const { rows: source } = await db.query(`
+      SELECT obligation_id FROM app.obligations WHERE source_expense_id = $1`,
+    [first[0].result.expense_id]);
+    const { rows: preview } = await rpc(db, firstUser, 'preview_route', {
+      p_obligation_id: source[0].obligation_id, p_amount: '80.00',
+    });
+    assert.deepEqual(preview[0].result.path, [firstUser, thirdUser, secondUser]);
+    const { rows: result } = await rpc(db, firstUser, 'execute_route', {
+      p_preview_id: preview[0].result.preview_id,
+    });
+    assert.equal(result[0].result.status, 'ROUTED');
+    const { rows: routed } = await db.query(`
+      SELECT debtor_user_id, creditor_user_id, remaining_amount::text AS remaining_amount,
+        source_expense_id, is_routed
+      FROM app.obligations WHERE is_routed`);
+    assert.deepEqual(routed, [{ debtor_user_id: firstUser, creditor_user_id: secondUser,
+      remaining_amount: '80.00', source_expense_id: first[0].result.expense_id, is_routed: true }]);
+    await assert.rejects(rpc(db, firstUser, 'void_expense', {
+      p_expense_id: first[0].result.expense_id, p_reason: 'Would rewrite routed debt',
+    }), /expense_correction_forbidden/i);
+    const { rows: unused } = await db.query(`
+      SELECT obligation_id FROM app.obligations WHERE source_expense_id = $1 AND debtor_user_id = $2`,
+    [second[0].result.expense_id, thirdUser]);
+    assert.equal(unused.length, 1);
+  } finally { await db.close(); }
+});
+
+test('group departure guard follows routed obligations through later route hops', async () => {
+  const db = await createDatabase();
+  const fourthUser = '6d6a68db-a8c1-4a53-a92c-c356913e40a5';
+  try {
+    await db.query(`INSERT INTO auth.users (id, email, raw_user_meta_data)
+      VALUES ($1, 'four@example.test', '{"username":"four"}')`, [fourthUser]);
+    const groupId = await createGroup(db);
+    await addMember(db, groupId, secondUser);
+    await addMember(db, groupId, thirdUser);
+    await addMember(db, groupId, fourthUser);
+    const makeDebt = async (debtor, creditor, requestId) => {
+      const { rows } = await rpc(db, debtor, 'create_expense', {
+        p_group_id: groupId, p_title: 'Routed lineage', p_total_amount: '100.00',
+        p_split_mode: 'EXACT', p_paid_by: creditor, p_participants: [debtor, creditor],
+        p_request_id: requestId, p_exact_shares: { [debtor]: '100.00', [creditor]: '0.00' },
+      });
+      const { rows: debtRows } = await db.query(
+        'SELECT obligation_id FROM app.obligations WHERE source_expense_id = $1',
+        [rows[0].result.expense_id],
+      );
+      return debtRows[0].obligation_id;
+    };
+    const original = await makeDebt(firstUser, secondUser, 'f8cfdbcf-51f0-47cc-9bb1-3953ec777f1c');
+    await makeDebt(secondUser, thirdUser, 'a8c6be0c-473f-4878-b3d1-e9c108f81934');
+    await makeDebt(thirdUser, fourthUser, 'aec31287-1bd4-44c6-9ed4-ae605c09539d');
+    const { rows: friendWithThird } = await rpc(db, firstUser, 'request_friendship', { p_username: 'three' });
+    await rpc(db, thirdUser, 'respond_friendship', {
+      p_friendship_id: friendWithThird[0].result.friendship_id, p_accept: true,
+    });
+    const { rows: friendWithFourth } = await rpc(db, firstUser, 'request_friendship', { p_username: 'four' });
+    await rpc(db, fourthUser, 'respond_friendship', {
+      p_friendship_id: friendWithFourth[0].result.friendship_id, p_accept: true,
+    });
+    await rpc(db, thirdUser, 'set_trust_limit', { p_debtor_user_id: firstUser, p_limit_amount: '100.00' });
+    await rpc(db, fourthUser, 'set_trust_limit', { p_debtor_user_id: firstUser, p_limit_amount: '100.00' });
+
+    const { rows: firstPreview } = await rpc(db, firstUser, 'preview_route', {
+      p_obligation_id: original, p_amount: '100.00',
+    });
+    const { rows: firstRoute } = await rpc(db, firstUser, 'execute_route', {
+      p_preview_id: firstPreview[0].result.preview_id,
+    });
+    const { rows: secondPreview } = await rpc(db, firstUser, 'preview_route', {
+      p_obligation_id: firstRoute[0].result.obligation_id, p_amount: '100.00',
+    });
+    await rpc(db, firstUser, 'execute_route', { p_preview_id: secondPreview[0].result.preview_id });
+
+    await assert.rejects(
+      rpc(db, secondUser, 'leave_group', { p_group_id: groupId }),
+      /group_member_has_routed_exposure/i,
+    );
+  } finally { await db.close(); }
+});
+
+test('confirmed incoming payments create reserved forwarding tasks and each hop needs confirmation', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db);
+    await addMember(db, groupId, secondUser);
+    await addMember(db, groupId, thirdUser);
+    const makeDebt = async (debtor, creditor, amount, requestId) => {
+      const { rows } = await rpc(db, debtor, 'create_expense', {
+        p_group_id: groupId, p_title: 'Debt source', p_total_amount: amount,
+        p_split_mode: 'EXACT', p_paid_by: creditor, p_participants: [debtor, creditor],
+        p_request_id: requestId, p_exact_shares: { [debtor]: amount, [creditor]: '0.00' },
+      });
+      const { rows: debtRows } = await db.query(
+        'SELECT obligation_id FROM app.obligations WHERE source_expense_id = $1',
+        [rows[0].result.expense_id],
+      );
+      return debtRows[0].obligation_id;
+    };
+    const fromFirstToSecond = await makeDebt(firstUser, secondUser, '100.00', '5500e116-5e36-411f-a1b4-05d316eb4f01');
+    const fromSecondToThird = await makeDebt(secondUser, thirdUser, '80.00', 'afa21db2-6ef1-455e-8d03-7e284579a202');
+    await rpc(db, secondUser, 'create_pay_when_paid_rule', {
+      p_trigger_obligation_id: fromFirstToSecond, p_target_obligation_id: fromSecondToThird,
+      p_max_amount: '80.00', p_request_id: '575c58c1-40b2-4a15-a821-3c8e35127d04',
+    });
+    const { rows: reported } = await rpc(db, firstUser, 'report_payment', {
+      p_obligation_id: fromFirstToSecond, p_amount: '60.00',
+      p_request_id: 'c998feea-e929-40b8-9cf7-ea9ac25527a2',
+    });
+    await rpc(db, secondUser, 'confirm_payment', { p_payment_id: reported[0].result.payment_id });
+    const { rows: taskRows } = await db.query(`
+      SELECT task_id, amount::text AS amount, remaining_amount::text AS remaining_amount, status
+      FROM app.forwarding_tasks WHERE target_obligation_id = $1`, [fromSecondToThird]);
+    assert.equal(taskRows.length, 1);
+    assert.deepEqual(taskRows[0], {
+      task_id: taskRows[0].task_id, amount: '60.00', remaining_amount: '60.00', status: 'PENDING',
+    });
+    const { rows: reservedBefore } = await db.query(
+      'SELECT private.obligation_reserved_amount($1)::text AS reserved', [fromSecondToThird]);
+    assert.equal(reservedBefore[0].reserved, '60.00');
+    const directRequestId = '19898488-8554-4a3e-a851-f8f90db88f99';
+    const { rows: directPayment } = await rpc(db, secondUser, 'report_payment', {
+      p_obligation_id: fromSecondToThird, p_amount: '5.00', p_request_id: directRequestId,
+    });
+    await assert.rejects(rpc(db, secondUser, 'report_task_payment', {
+      p_task_id: taskRows[0].task_id, p_amount: '5.00', p_request_id: directRequestId,
+    }), /idempotency_conflict/i);
+    await rpc(db, secondUser, 'cancel_payment', { p_payment_id: directPayment[0].result.payment_id });
+    const { rows: taskPayment } = await rpc(db, secondUser, 'report_task_payment', {
+      p_task_id: taskRows[0].task_id, p_amount: '60.00',
+      p_request_id: '77284ea1-73e1-44d6-8f99-7538ace81026',
+    });
+    await assert.rejects(rpc(db, secondUser, 'report_payment', {
+      p_obligation_id: fromSecondToThird, p_amount: '60.00',
+      p_request_id: '77284ea1-73e1-44d6-8f99-7538ace81026',
+    }), /idempotency_conflict/i);
+    const { rows: reservedDuring } = await db.query(
+      'SELECT private.obligation_reserved_amount($1)::text AS reserved', [fromSecondToThird]);
+    assert.equal(reservedDuring[0].reserved, '60.00');
+    await assert.rejects(rpc(db, secondUser, 'report_payment', {
+      p_obligation_id: fromSecondToThird, p_amount: '21.00',
+      p_request_id: '61e71a4c-b90d-41b2-809f-ff3f10775992',
+    }), /payment_exceeds_unreserved_debt/i);
+    await rpc(db, thirdUser, 'confirm_payment', { p_payment_id: taskPayment[0].result.payment_id });
+    const { rows: after } = await db.query(`
+      SELECT remaining_amount::text AS remaining_amount, status FROM app.obligations WHERE obligation_id = $1`,
+    [fromSecondToThird]);
+    assert.deepEqual(after, [{ remaining_amount: '20.00', status: 'PARTIAL' }]);
+    const { rows: tasksAfter } = await db.query(
+      'SELECT status FROM app.forwarding_tasks WHERE task_id = $1', [taskRows[0].task_id]);
+    assert.deepEqual(tasksAfter, [{ status: 'CONFIRMED' }]);
+    const { rows: settlements } = await db.query(`
+      SELECT count(*)::int AS count FROM app.settlement_records
+      WHERE settlement_type = 'EXTERNAL_PAYMENT' AND obligation_id = $1`, [fromSecondToThird]);
+    assert.equal(settlements[0].count, 1);
+  } finally { await db.close(); }
+});
+
+test('armed consenting rules net closed cycles without cash or forwarding tasks', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db);
+    await addMember(db, groupId, secondUser);
+    await addMember(db, groupId, thirdUser);
+    const makeDebt = async (debtor, creditor, requestId) => {
+      const { rows } = await rpc(db, debtor, 'create_expense', {
+        p_group_id: groupId, p_title: 'Cycle source', p_total_amount: '50.00',
+        p_split_mode: 'EXACT', p_paid_by: creditor, p_participants: [debtor, creditor],
+        p_request_id: requestId, p_exact_shares: { [debtor]: '50.00', [creditor]: '0.00' },
+      });
+      const { rows: debtRows } = await db.query(
+        'SELECT obligation_id FROM app.obligations WHERE source_expense_id = $1',
+        [rows[0].result.expense_id],
+      );
+      return debtRows[0].obligation_id;
+    };
+    const ab = await makeDebt(firstUser, secondUser, '74cb35a1-9a3d-4d92-98aa-4bd0159f1c87');
+    const bc = await makeDebt(secondUser, thirdUser, '75657e81-ec2c-4bfe-83d7-2fa9032cc561');
+    const ca = await makeDebt(thirdUser, firstUser, '6f9a7f23-1d64-4dd6-8826-d4c2e16df708');
+    await rpc(db, secondUser, 'create_pay_when_paid_rule', {
+      p_trigger_obligation_id: ab, p_target_obligation_id: bc, p_max_amount: '50.00',
+      p_request_id: 'dfe91c92-0782-4138-9ff7-692d66891fcb',
+    });
+    await rpc(db, thirdUser, 'create_pay_when_paid_rule', {
+      p_trigger_obligation_id: bc, p_target_obligation_id: ca, p_max_amount: '50.00',
+      p_request_id: 'f6c9ef0a-9cfb-4926-b2f9-165982d39446',
+    });
+    await rpc(db, firstUser, 'create_pay_when_paid_rule', {
+      p_trigger_obligation_id: ca, p_target_obligation_id: ab, p_max_amount: '50.00',
+      p_request_id: '72337570-a4d7-48f8-b70c-37d2e0f64736',
+    });
+    const { rows: debts } = await db.query(`
+      SELECT status, remaining_amount::text AS remaining_amount
+      FROM app.obligations WHERE obligation_id = ANY($1::uuid[]) ORDER BY obligation_id`, [[ab, bc, ca]]);
+    assert.deepEqual(debts, [
+      { status: 'SETTLED', remaining_amount: '0.00' },
+      { status: 'SETTLED', remaining_amount: '0.00' },
+      { status: 'SETTLED', remaining_amount: '0.00' },
+    ]);
+    const { rows: cash } = await db.query(`
+      SELECT count(*)::int AS count FROM app.settlement_records
+      WHERE obligation_id = ANY($1::uuid[]) AND settlement_type = 'EXTERNAL_PAYMENT'`, [[ab, bc, ca]]);
+    assert.equal(cash[0].count, 0);
+    const { rows: nettings } = await db.query(`
+      SELECT count(*)::int AS count FROM app.settlement_records
+      WHERE obligation_id = ANY($1::uuid[]) AND settlement_type = 'CYCLE_NET'`, [[ab, bc, ca]]);
+    assert.equal(nettings[0].count, 3);
+    const { rows: tasks } = await db.query('SELECT count(*)::int AS count FROM app.forwarding_tasks');
+    assert.equal(tasks[0].count, 0);
+  } finally { await db.close(); }
+});
+
+test('cycle netting stops once an unequal cycle leg is fully cleared', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db);
+    await addMember(db, groupId, secondUser);
+    await addMember(db, groupId, thirdUser);
+    const makeDebt = async (debtor, creditor, amount, requestId) => {
+      const { rows } = await rpc(db, debtor, 'create_expense', {
+        p_group_id: groupId, p_title: 'Unequal cycle source', p_total_amount: amount,
+        p_split_mode: 'EXACT', p_paid_by: creditor, p_participants: [debtor, creditor],
+        p_request_id: requestId, p_exact_shares: { [debtor]: amount, [creditor]: '0.00' },
+      });
+      const { rows: debtRows } = await db.query(
+        'SELECT obligation_id FROM app.obligations WHERE source_expense_id = $1',
+        [rows[0].result.expense_id],
+      );
+      return debtRows[0].obligation_id;
+    };
+    const ab = await makeDebt(firstUser, secondUser, '10.00', '62eaf8bf-614e-4fa1-b1a0-753ed8ecf2d3');
+    const bc = await makeDebt(secondUser, thirdUser, '20.00', 'd31b7866-6970-4642-b0c0-75c94b19142a');
+    const ca = await makeDebt(thirdUser, firstUser, '30.00', '91ea44b2-70cb-4b84-8a27-2076d7d9d531');
+    await rpc(db, secondUser, 'create_pay_when_paid_rule', {
+      p_trigger_obligation_id: ab, p_target_obligation_id: bc, p_max_amount: '100.00',
+      p_request_id: '6d1bb426-3d6e-437d-ae9c-471f24d3921c',
+    });
+    await rpc(db, thirdUser, 'create_pay_when_paid_rule', {
+      p_trigger_obligation_id: bc, p_target_obligation_id: ca, p_max_amount: '100.00',
+      p_request_id: 'd6f3b55f-025e-40f8-a07c-2f05721bf9a2',
+    });
+    await rpc(db, firstUser, 'create_pay_when_paid_rule', {
+      p_trigger_obligation_id: ca, p_target_obligation_id: ab, p_max_amount: '100.00',
+      p_request_id: 'd2ba5876-7845-45a7-9f46-d9c9a9f4087e',
+    });
+
+    const { rows: debts } = await db.query(`
+      SELECT obligation_id, status, remaining_amount::text AS remaining_amount
+      FROM app.obligations WHERE obligation_id = ANY($1::uuid[])`, [[ab, bc, ca]]);
+    assert.deepEqual(Object.fromEntries(debts.map((debt) => [debt.obligation_id, debt.remaining_amount])), {
+      [ab]: '0.00', [bc]: '10.00', [ca]: '20.00',
+    });
+    assert.equal(debts.find((debt) => debt.obligation_id === ab).status, 'SETTLED');
+    assert.equal(debts.filter((debt) => debt.status === 'PARTIAL').length, 2);
+    const { rows: nettings } = await db.query(`
+      SELECT count(*)::int AS count, sum(amount)::text AS amount
+      FROM app.settlement_records WHERE obligation_id = ANY($1::uuid[])
+        AND settlement_type = 'CYCLE_NET'`, [[ab, bc, ca]]);
+    assert.deepEqual(nettings, [{ count: 3, amount: '30.00' }]);
+  } finally { await db.close(); }
+});
+
+test('forwarding allocation rounds within each payable target and never over-reserves it', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db);
+    await addMember(db, groupId, secondUser);
+    await addMember(db, groupId, thirdUser);
+    const makeDebt = async (debtor, creditor, amount, requestId) => {
+      const { rows } = await rpc(db, debtor, 'create_expense', {
+        p_group_id: groupId, p_title: 'Paise allocation source', p_total_amount: amount,
+        p_split_mode: 'EXACT', p_paid_by: creditor, p_participants: [debtor, creditor],
+        p_request_id: requestId, p_exact_shares: { [debtor]: amount, [creditor]: '0.00' },
+      });
+      const { rows: debtRows } = await db.query(
+        'SELECT obligation_id FROM app.obligations WHERE source_expense_id = $1',
+        [rows[0].result.expense_id],
+      );
+      return debtRows[0].obligation_id;
+    };
+    const incoming = await makeDebt(firstUser, secondUser, '0.02', '502ce398-b54c-4780-95bf-9826691f7465');
+    const firstTarget = await makeDebt(secondUser, thirdUser, '0.01', 'c09f952d-45b7-48c7-97f4-1c591d31c87a');
+    const secondTarget = await makeDebt(secondUser, thirdUser, '0.01', '6477a64b-e227-4cfd-a6ce-1f764b270796');
+    const ruleIds = [];
+    for (const target of [firstTarget, secondTarget]) {
+      for (let index = 0; index < 2; index += 1) {
+        const { rows } = await rpc(db, secondUser, 'create_pay_when_paid_rule', {
+          p_trigger_obligation_id: incoming, p_target_obligation_id: target, p_max_amount: '0.01',
+          p_request_id: crypto.randomUUID(),
+        });
+        ruleIds.push({ oldId: rows[0].result.rule_id, target });
+      }
+    }
+    const orderedIds = [
+      '00000000-0000-0000-0000-000000000001',
+      '00000000-0000-0000-0000-000000000002',
+      '00000000-0000-0000-0000-000000000003',
+      '00000000-0000-0000-0000-000000000004',
+    ];
+    await db.query(`
+      UPDATE app.pay_when_paid_rules AS rule SET rule_id = mapping.new_id
+      FROM unnest($1::uuid[], $2::uuid[]) AS mapping(old_id, new_id)
+      WHERE rule.rule_id = mapping.old_id`, [ruleIds.map((rule) => rule.oldId), orderedIds]);
+
+    const { rows: paymentRows } = await rpc(db, firstUser, 'report_payment', {
+      p_obligation_id: incoming, p_amount: '0.02',
+      p_request_id: '913cf774-c55b-4e25-82bd-aef01c87c149',
+    });
+    await rpc(db, secondUser, 'confirm_payment', { p_payment_id: paymentRows[0].result.payment_id });
+    const { rows: reservations } = await db.query(`
+      SELECT obligation_id, private.obligation_reserved_amount(obligation_id)::text AS reserved
+      FROM app.obligations WHERE obligation_id = ANY($1::uuid[]) ORDER BY obligation_id`,
+    [[firstTarget, secondTarget]]);
+    assert.deepEqual(Object.fromEntries(reservations.map((row) => [row.obligation_id, row.reserved])), {
+      [firstTarget]: '0.01', [secondTarget]: '0.01',
+    });
+    const { rows: tasks } = await db.query(`
+      SELECT target_obligation_id, sum(amount)::text AS amount
+      FROM app.forwarding_tasks GROUP BY target_obligation_id`);
+    assert.deepEqual(Object.fromEntries(tasks.map((task) => [task.target_obligation_id, task.amount])), {
+      [firstTarget]: '0.01', [secondTarget]: '0.01',
+    });
+  } finally { await db.close(); }
 });

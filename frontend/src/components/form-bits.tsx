@@ -44,13 +44,13 @@ export function SplitModeToggle({ value, onValueChange }: { value: SplitMode; on
 }
 
 // value / onChange use "YYYY-MM-DD" strings, the same shape the API uses.
-export function DatePicker({ id, value, onChange, placeholder = "Pick a date" }: { id?: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+export function DatePicker({ id, value, onChange, placeholder = "Pick a date", disabled = false }: { id?: string; value: string; onChange: (v: string) => void; placeholder?: string; disabled?: boolean }) {
   const [open, setOpen] = useState(false)
   const date = value ? parseISO(value) : undefined
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button id={id} variant="outline" className={cn("w-full justify-start font-normal", !date && "text-muted-foreground")}>
+        <Button id={id} variant="outline" disabled={disabled} className={cn("w-full justify-start font-normal", !date && "text-muted-foreground")}>
           <CalendarIcon /> {date ? format(date, "d MMM yyyy") : placeholder}
         </Button>
       </PopoverTrigger>
@@ -119,12 +119,10 @@ export function SimpleSelect({ id, value, onValueChange, options, placeholder = 
 
 // A person's name that shows your balance with them and their trust limits on hover.
 export function PersonHover({ id, children }: { id: string; children?: ReactNode }) {
-  const { users, obligations, friendships, me, userName } = useStore()
+  const { users, dashboardBalances, friendships, me, userName } = useStore()
   if (id === me) return <>{children ?? userName(id)}</>
   const user = users.find((u) => u.user_id === id)
-  const open = obligations.filter((o) => o.status !== "SETTLED")
-  const net = open.filter((o) => o.debtor_id === id && o.creditor_id === me).reduce((s, o) => s + o.remaining_amount, 0)
-    - open.filter((o) => o.debtor_id === me && o.creditor_id === id).reduce((s, o) => s + o.remaining_amount, 0)
+  const net = Number(dashboardBalances.find((balance) => balance.user_id === id)?.net_amount ?? 0)
   const f = friendships.find((x) => x.friend_id === id)
   return (
     <HoverCard openDelay={250}>

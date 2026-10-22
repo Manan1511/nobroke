@@ -13,7 +13,20 @@ type NoArgs = Record<PropertyKey, never>;
 
 type ApiFunctions = {
   accept_group_invite: Rpc<{ p_token: string }>;
+  block_friend: Rpc<{ p_friendship_id: string }>;
+  cancel_payment: Rpc<{ p_payment_id: string }>;
+  cancel_pay_when_paid_rule: Rpc<{ p_rule_id: string }>;
   clear_private_income: Rpc<NoArgs>;
+  create_pay_when_paid_rule: Rpc<{
+    p_trigger_obligation_id: string;
+    p_target_obligation_id: string;
+    p_max_amount: string;
+    p_request_id: string;
+  }>;
+  confirm_payment: Rpc<{ p_payment_id: string }>;
+  get_dashboard_summary: Rpc<NoArgs>;
+  get_dashboard_balances: Rpc<NoArgs>;
+  get_dashboard_group_spending: Rpc<NoArgs>;
   create_expense: Rpc<{
     p_group_id: string;
     p_title: string;
@@ -26,6 +39,38 @@ type ApiFunctions = {
   }>;
   create_group: Rpc<{ p_name: string }>;
   create_group_invite: Rpc<{ p_group_id: string }>;
+  get_my_profile: Rpc<NoArgs>;
+  get_group_balances: Rpc<{ p_group_id: string }>;
+  get_notification_preferences: Rpc<NoArgs>;
+  get_notification_unread_count: Rpc<NoArgs>;
+  list_my_spending: Rpc<{ p_months?: number }>;
+  list_notifications: Rpc<{
+    p_after_created_at?: string;
+    p_after_id?: string;
+    p_limit?: number;
+  }>;
+  list_my_friends: Rpc<{ p_after_id?: string; p_limit?: number }>;
+  list_my_obligations: Rpc<{ p_after_id?: string; p_limit?: number }>;
+  list_my_pay_when_paid_rules: Rpc<{ p_after_id?: string; p_limit?: number }>;
+  list_forwarding_tasks: Rpc<{ p_after_id?: string; p_limit?: number }>;
+  list_cycle_net_batches: Rpc<{
+    p_after_created_at?: string;
+    p_after_id?: string;
+    p_limit?: number;
+  }>;
+  list_payment_reports: Rpc<{
+    p_after_created_at?: string;
+    p_after_id?: string;
+    p_limit?: number;
+  }>;
+  list_route_history: Rpc<{ p_after_created_at?: string; p_after_id?: string; p_limit?: number }>;
+  list_settlement_history: Rpc<{
+    p_after_created_at?: string;
+    p_after_id?: string;
+    p_limit?: number;
+  }>;
+  mark_all_notifications_read: Rpc<NoArgs>;
+  mark_notification_read: Rpc<{ p_notification_id: string }>;
   create_recurring_template: Rpc<{
     p_group_id: string;
     p_title: string;
@@ -42,6 +87,7 @@ type ApiFunctions = {
   get_private_income_status: Rpc<NoArgs>;
   get_recurring_template: Rpc<{ p_template_id: string }>;
   leave_group: Rpc<{ p_group_id: string }>;
+  list_group_membership_history: Rpc<{ p_group_id: string; p_after_id?: string; p_limit?: number }>;
   list_expenses: Rpc<{ p_group_id: string; p_after_id?: string; p_limit?: number }>;
   list_group_members: Rpc<{
     p_group_id: string;
@@ -56,6 +102,18 @@ type ApiFunctions = {
   }>;
   list_recurring_templates: Rpc<{ p_group_id: string; p_after_id?: string; p_limit?: number }>;
   pause_recurring_template: Rpc<{ p_template_id: string }>;
+  preview_route: Rpc<{ p_obligation_id: string; p_amount: string }>;
+  preview_pay_when_paid_rule: Rpc<{
+    p_trigger_obligation_id: string;
+    p_target_obligation_id: string;
+    p_max_amount: string;
+  }>;
+  execute_route: Rpc<{ p_preview_id: string }>;
+  reject_payment: Rpc<{ p_payment_id: string }>;
+  remind_debtor: Rpc<{ p_obligation_id: string }>;
+  report_payment: Rpc<{ p_obligation_id: string; p_amount: string; p_request_id: string }>;
+  report_task_payment: Rpc<{ p_task_id: string; p_amount: string; p_request_id: string }>;
+  request_friendship: Rpc<{ p_username: string }>;
   remove_group_member: Rpc<{ p_group_id: string; p_user_id: string }>;
   rename_group: Rpc<{ p_group_id: string; p_name: string }>;
   replace_expense: Rpc<{
@@ -73,6 +131,10 @@ type ApiFunctions = {
   resume_recurring_template: Rpc<{ p_template_id: string }>;
   revoke_group_invite: Rpc<{ p_invite_id: string }>;
   set_private_income: Rpc<{ p_monthly_income: string }>;
+  set_trust_limit: Rpc<{ p_debtor_user_id: string; p_limit_amount: string }>;
+  respond_friendship: Rpc<{ p_friendship_id: string; p_accept: boolean }>;
+  update_my_profile: Rpc<{ p_username: string; p_display_name: string }>;
+  update_notification_preferences: Rpc<{ p_preferences: Json }>;
   transfer_group_ownership: Rpc<{ p_group_id: string; p_new_owner_id: string }>;
   update_recurring_template: Rpc<{
     p_template_id: string;
@@ -85,6 +147,7 @@ type ApiFunctions = {
     p_exact_shares?: Json;
   }>;
   void_expense: Rpc<{ p_expense_id: string; p_reason: string }>;
+  void_expense_request: Rpc<{ p_expense_id: string; p_reason: string; p_request_id: string }>;
 };
 
 type EmptySchema = {

@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/sidebar"
 import { UserAvatar } from "@/components/shared"
 import { useStore } from "@/lib/store"
-import { DEMO_USER, useSession } from "@/lib/session"
+import { useSession } from "@/lib/session"
 import { cn } from "@/lib/utils"
 import ShinyText from "@/components/bits/ShinyText"
 
@@ -23,7 +23,7 @@ const GROUPS = [
 export function AppSidebar({ page, onNavigate }: { page: string; onNavigate: (id: string) => void }) {
   const { obligations, friendships, rules, me } = useStore()
   const { isMobile, setOpenMobile } = useSidebar()
-  const session = useSession() ?? DEMO_USER
+  const session = useSession()
   // Small counters next to some sections, so you can see what needs attention.
   const badges: Record<string, number> = {
     balances: obligations.filter((o) => o.debtor_id === me && o.status !== "SETTLED").length,
@@ -101,10 +101,10 @@ export function AppSidebar({ page, onNavigate }: { page: string; onNavigate: (id
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" tooltip="Profile & privacy" onClick={() => go("profile")}>
-              <UserAvatar id="u1" name={session.name} className="size-8" />
+              <UserAvatar id={session?.userId ?? me} name={session?.name} className="size-8" />
               <span className="grid flex-1 text-left leading-tight">
-                <span className="truncate font-medium">{session.name}</span>
-                <span className="truncate text-xs text-muted-foreground">{session.email}</span>
+                <span className="truncate font-medium">{session?.name ?? "NoBroke member"}</span>
+                <span className="truncate text-xs text-muted-foreground">{session?.email ?? ""}</span>
               </span>
             </SidebarMenuButton>
           </SidebarMenuItem>

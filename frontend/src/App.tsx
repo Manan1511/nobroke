@@ -17,7 +17,7 @@ import { SpatialBackdrop } from "@/components/spatial-backdrop"
 import { NAV, idForSlug, pathFor } from "@/lib/nav"
 import { useStore } from "@/lib/store"
 import { startSmoothScroll, scrollToTop } from "@/lib/smooth-scroll"
-import { signOut, useSession } from "@/lib/session"
+import { signOut, useAuthLoading, useSession } from "@/lib/session"
 import { inr } from "@/lib/utils"
 const Dashboard = lazy(() => import("@/pages/Dashboard"))
 const Groups = lazy(() => import("@/pages/Groups"))
@@ -133,6 +133,7 @@ export default function App() {
   const { section } = useParams()
   const navigate = useNavigate()
   const session = useSession()
+  const authLoading = useAuthLoading()
   const page = idForSlug(section)
   const [searchOpen, setSearchOpen] = useState(false)
   const { dark, setDark } = useDarkMode()
@@ -140,7 +141,8 @@ export default function App() {
   useEffect(() => startSmoothScroll(), [])
   useEffect(() => { const t = window.setTimeout(preloadPages, 1500); return () => window.clearTimeout(t) }, [])
   useEffect(() => { if (page) document.title = `${NAV.find((n) => n.id === page)?.label} · NoBroke` }, [page])
-  if (!session) return <Navigate to="/" replace /> // signed out: the landing page offers Log in / Sign up
+  if (authLoading) return <div className="grid min-h-svh place-items-center" aria-busy="true" />
+  if (!session) return <Navigate to="/" replace />
   if (!page) return <NotFound />
   const Page = PAGES[page]
 
@@ -170,7 +172,7 @@ export default function App() {
             <Button variant="ghost" size="icon" onClick={() => setDark((d) => !d)} aria-label="Toggle dark mode">{dark ? <Sun /> : <Moon />}</Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <button type="button" aria-label="Account menu" className="rounded-full"><UserAvatar id="u1" name={session.name} /></button>
+                <button type="button" aria-label="Account menu" className="rounded-full"><UserAvatar id={session.userId} name={session.name} /></button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <DropdownMenuLabel className="grid gap-0.5"><span>{session.name}</span><span className="text-xs font-normal text-muted-foreground">{session.email}</span></DropdownMenuLabel>
@@ -178,7 +180,7 @@ export default function App() {
                 <DropdownMenuItem onSelect={() => go("profile")}><UserCog /> Profile & privacy</DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => navigate("/")}><House /> NoBroke home page</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onSelect={() => { signOut(); toast("Signed out"); navigate("/") }}><LogOut /> Sign out</DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" onSelect={() => { void signOut().then(() => { toast("Signed out"); navigate("/") }) }}><LogOut /> Sign out</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

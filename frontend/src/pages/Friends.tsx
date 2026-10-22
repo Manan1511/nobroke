@@ -12,172 +12,156 @@ import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, Dialog
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog"
 import { PageHeader, StatusBadge, UserAvatar } from "@/components/shared"
 import { useStore } from "@/lib/store"
+import { apiRpc } from "@/lib/supabase"
 import { cn, inr } from "@/lib/utils"
+import { compareMoney, moneyRatio } from "@/lib/money.mjs"
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Badge } from "@/components/ui/badge"
-import { Money, Reveal, Spotlight } from "@/components/motion"
+import { Reveal, Spotlight } from "@/components/motion"
 import { label } from "@/components/shared"
-import type { Friendship, FriendshipStatus } from "@/types"
+import type { Friendship } from "@/types"
 
 function AddFriendDialog() {
+  const { refresh } = useStore()
   const [open, setOpen] = useState(false)
-  const [email, setEmail] = useState("")
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild><Button><UserPlus /> Add friend</Button></DialogTrigger>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Add friend</DialogTitle><DialogDescription>They'll get a request to accept.</DialogDescription></DialogHeader>
-        <Field><FieldLabel htmlFor="fe">Email or username</FieldLabel><Input id="fe" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" /></Field>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button disabled={!email.trim()} onClick={() => { toast.success(`Request sent to ${email}`); setEmail(""); setOpen(false) }}>Send request</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
+  const [username, setUsername] = useState("")
+  const [saving, setSaving] = useState(false)
+  const send = async () => {
+    setSaving(true)
+    try {
+      await apiRpc("request_friendship", { p_username: username.trim().replace(/^@/, "") })
+      await refresh()
+      toast.success("Friend request sent")
+      setUsername(""); setOpen(false)
+    } catch { toast.error("No user found for that username, or a request already exists.") }
+    finally { setSaving(false) }
+  }
+  return <Dialog open={open} onOpenChange={setOpen}>
+    <DialogTrigger asChild><Button><UserPlus /> Add friend</Button></DialogTrigger>
+    <DialogContent>
+      <DialogHeader><DialogTitle>Add a friend</DialogTitle><DialogDescription>Search by exact username. No email or open user directory is exposed.</DialogDescription></DialogHeader>
+      <Field><FieldLabel htmlFor="friend-username">Username</FieldLabel><Input id="friend-username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="their-username" autoComplete="off" /></Field>
+      <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+        <Button disabled={!username.trim() || saving} onClick={() => void send()}>{saving ? "Sending…" : "Send request"}</Button></DialogFooter>
+    </DialogContent>
+  </Dialog>
 }
 
-function EditLimitDialog({ f }: { f: Friendship }) {
-  const { update, userName } = useStore()
+function EditLimitDialog({ friendship }: { friendship: Friendship }) {
+  const { refresh, userName } = useStore()
   const [open, setOpen] = useState(false)
-  const [limit, setLimit] = useState(String(f.credit_limit_me_to_them))
-  const tooLow = Number(limit) < f.exposure_me_to_them
-  const onOpenChange = (v: boolean) => { if (v) setLimit(String(f.credit_limit_me_to_them)); setOpen(v) }
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild><Button variant="outline" size="sm"><Pencil /> Trust limit</Button></DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Trust limit for {userName(f.friend_id)}</DialogTitle>
-          <DialogDescription>The most you're willing to have routed through you on their behalf. Set it to ₹0 to never be used as a route.</DialogDescription>
-        </DialogHeader>
-        <Field data-invalid={tooLow || undefined}>
-          <FieldLabel htmlFor="lim">Limit</FieldLabel>
-          <Slider min={0} max={10000} step={100} value={[Math.min(Number(limit) || 0, 10000)]} onValueChange={([v]) => setLimit(String(v))} aria-label="Trust limit" className="my-2" />
-          <AmountInput id="lim" step="100" value={limit} onChange={(e) => setLimit(e.target.value)} aria-invalid={tooLow || undefined} />
-          {tooLow ? <FieldError>{inr(f.exposure_me_to_them)} is already routed through you. The limit can't be lower than that.</FieldError>
-            : <FieldDescription>{inr(f.exposure_me_to_them)} of it is in use right now.</FieldDescription>}
-        </Field>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button disabled={tooLow || limit === ""} onClick={() => {
-            update("friendships", (fs) => fs.map((x) => (x.friendship_id === f.friendship_id ? { ...x, credit_limit_me_to_them: Number(limit) } : x)))
-            toast.success("Trust limit saved"); setOpen(false)
-          }}>Save limit</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
+  const [limit, setLimit] = useState(String(friendship.credit_limit_me_to_them))
+  const [saving, setSaving] = useState(false)
+  const tooLow = compareMoney(limit, friendship.exposure_me_to_them) === -1
+  const onOpenChange = (value: boolean) => { if (value) setLimit(String(friendship.credit_limit_me_to_them)); setOpen(value) }
+  const save = async () => {
+    setSaving(true)
+    try {
+      await apiRpc("set_trust_limit", { p_debtor_user_id: friendship.friend_id, p_limit_amount: limit })
+      await refresh(); toast.success("Trust limit saved"); setOpen(false)
+    } catch { toast.error("Could not save the limit. It cannot fall below routed exposure.") }
+    finally { setSaving(false) }
+  }
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogTrigger asChild><Button variant="outline" size="sm"><Pencil /> Trust limit</Button></DialogTrigger>
+    <DialogContent>
+      <DialogHeader><DialogTitle>Trust you grant {userName(friendship.friend_id)}</DialogTitle>
+        <DialogDescription>You are the creditor granting this limit to your friend as debtor. Set ₹0 to give no routing consent.</DialogDescription></DialogHeader>
+      <Field data-invalid={tooLow || undefined}>
+        <FieldLabel htmlFor="trust-limit">Limit</FieldLabel>
+        <Slider min={0} max={100000} step={100} value={[Math.min(Number(limit) || 0, 100000)]} onValueChange={([value]) => setLimit(String(value))} aria-label="Trust limit" className="my-2" />
+        <AmountInput id="trust-limit" value={limit} onChange={(event) => setLimit(event.target.value)} aria-invalid={tooLow || undefined} />
+        {tooLow ? <FieldError>{inr(friendship.exposure_me_to_them)} is already in use. The limit cannot be lower.</FieldError>
+          : <FieldDescription>{inr(friendship.exposure_me_to_them)} of the limit is in routed exposure.</FieldDescription>}
+      </Field>
+      <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+        <Button disabled={tooLow || limit === "" || saving} onClick={() => void save()}>{saving ? "Saving…" : "Save limit"}</Button></DialogFooter>
+    </DialogContent>
+  </Dialog>
 }
 
-/** Everything you share with one friend: balance, open debts, groups and past settlements. */
 function FriendHistory({ id }: { id: string }) {
   const { obligations, groups, batches, userName, me } = useStore()
-  const debts = obligations.filter((o) => (o.debtor_id === me && o.creditor_id === id) || (o.debtor_id === id && o.creditor_id === me))
-  const open = debts.filter((o) => o.status !== "SETTLED")
-  const net = open.reduce((s, o) => s + (o.creditor_id === me ? o.remaining_amount : -o.remaining_amount), 0)
-  const shared = groups.filter((g) => g.members.includes(me) && g.members.includes(id))
-  const settled = batches.filter((b) => b.legs.some((l) => l.from_user === id || l.to_user === id))
-  return (
-    <Sheet>
-      <SheetTrigger asChild><Button size="sm" variant="ghost"><History /> History</Button></SheetTrigger>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-md">
-        <SheetHeader>
-          <div className="flex items-center gap-3"><UserAvatar id={id} className="size-12" />
-            <div><SheetTitle className="font-display text-3xl font-normal">{userName(id)}</SheetTitle><SheetDescription>Everything you two share on NoBroke.</SheetDescription></div>
-          </div>
-        </SheetHeader>
-        <Reveal className="grid gap-5 px-4 pb-6" stagger={0.07}>
-          <div className={cn("rounded-3xl border p-4", net > 0 ? "bg-positive-soft" : net < 0 ? "bg-negative-soft" : "bg-muted")}>
-            <div className="text-xs text-muted-foreground">{net > 0 ? "Owes you" : net < 0 ? "You owe" : "Balance"}</div>
-            <div className={cn("text-3xl font-semibold", net > 0 ? "text-positive" : net < 0 ? "text-negative" : "")}>{net === 0 ? "All square" : <Money value={Math.abs(net)} />}</div>
-          </div>
-          <section className="grid gap-2">
-            <h3 className="text-sm font-medium">Debts between you</h3>
-            {debts.length === 0 && <p className="text-sm text-muted-foreground">Nothing yet.</p>}
-            {debts.map((o) => (
-              <div key={o.obligation_id} className="flex items-center gap-2 rounded-2xl border bg-background/40 p-3 text-sm">
-                <span className="flex-1 truncate">{o.debtor_id === me ? "You owe" : "Owes you"} · {o.source}</span>
-                <Badge variant="outline">{label(o.status)}</Badge>
-                <span className="w-24 text-right tabular-nums">{inr(o.remaining_amount)}</span>
-              </div>
-            ))}
-          </section>
-          <section className="grid gap-2">
-            <h3 className="text-sm font-medium">Groups together</h3>
-            <div className="flex flex-wrap gap-2">{shared.length ? shared.map((g) => <Badge key={g.group_id} variant="secondary">{g.group_name}</Badge>) : <span className="text-sm text-muted-foreground">No shared groups.</span>}</div>
-          </section>
-          <section className="grid gap-2">
-            <h3 className="text-sm font-medium">Settlements involving {userName(id).split(" ")[0]}</h3>
-            {settled.length === 0 && <p className="text-sm text-muted-foreground">None yet.</p>}
-            {settled.map((b) => (
-              <div key={b.batch_id} className="grid gap-1 rounded-2xl border bg-background/40 p-3 text-sm">
-                <div className="flex justify-between"><span className="font-medium">{label(b.settlement_type)}</span><span className="tabular-nums">{inr(b.total_cleared)}</span></div>
-                <div className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
-                  {b.legs.map((l, i) => <span key={i} className="flex items-center gap-1">{userName(l.from_user)} <ArrowRight className="size-3" /> {userName(l.to_user)}{i < b.legs.length - 1 && ","}</span>)}
-                  <span className="ml-auto">{b.executed_at}</span>
-                </div>
-              </div>
-            ))}
-          </section>
-        </Reveal>
-      </SheetContent>
-    </Sheet>
-  )
+  const debts = obligations.filter((item) => (item.debtor_id === me && item.creditor_id === id) || (item.debtor_id === id && item.creditor_id === me))
+  const shared = groups.filter((group) => group.members.includes(me) && group.members.includes(id))
+  const history = batches.filter((batch) => batch.legs.some((leg) =>
+    (leg.from_user === me && leg.to_user === id) || (leg.from_user === id && leg.to_user === me)))
+  return <Sheet>
+    <SheetTrigger asChild><Button size="sm" variant="ghost"><History /> History</Button></SheetTrigger>
+    <SheetContent className="w-full overflow-y-auto sm:max-w-md">
+      <SheetHeader><div className="flex items-center gap-3"><UserAvatar id={id} className="size-12" />
+        <div><SheetTitle className="font-display text-3xl font-normal">{userName(id)}</SheetTitle><SheetDescription>Debts and activity you share.</SheetDescription></div>
+      </div></SheetHeader>
+      <Reveal className="grid gap-5 px-4 pb-6" stagger={0.07}>
+        <section className="grid gap-2"><h3 className="text-sm font-medium">Debts between you</h3>
+          {debts.length === 0 && <p className="text-sm text-muted-foreground">Nothing yet.</p>}
+          {debts.map((obligation) => <div key={obligation.obligation_id} className="flex items-center gap-2 rounded-2xl border bg-background/40 p-3 text-sm">
+            <span className="flex-1 truncate">{obligation.debtor_id === me ? "You owe" : "Owes you"} · {obligation.source}</span>
+            <Badge variant="outline">{label(obligation.status)}</Badge><span className="w-24 text-right tabular-nums">{inr(obligation.remaining_amount)}</span>
+          </div>)}
+        </section>
+        <section className="grid gap-2"><h3 className="text-sm font-medium">Groups together</h3>
+          <div className="flex flex-wrap gap-2">{shared.length ? shared.map((group) => <Badge key={group.group_id} variant="secondary">{group.group_name}</Badge>) : <span className="text-sm text-muted-foreground">No shared groups.</span>}</div>
+        </section>
+        <section className="grid gap-2"><h3 className="text-sm font-medium">Confirmed activity</h3>
+          {history.length === 0 && <p className="text-sm text-muted-foreground">No confirmed activity together.</p>}
+          {history.map((batch) => <div key={batch.batch_id} className="grid gap-1 rounded-2xl border bg-background/40 p-3 text-sm">
+            <div className="flex justify-between"><span className="font-medium">{label(batch.settlement_type)}</span><span className="tabular-nums">{inr(batch.total_cleared)}</span></div>
+            <div className="flex items-center gap-1 text-xs text-muted-foreground">{batch.legs.map((leg, index) => <span key={index} className="flex items-center gap-1">{userName(leg.from_user)} <ArrowRight className="size-3" /> {userName(leg.to_user)}</span>)}<span className="ml-auto">{batch.executed_at}</span></div>
+          </div>)}
+        </section>
+      </Reveal>
+    </SheetContent>
+  </Sheet>
 }
 
 export default function Friends() {
-  const { friendships, userName, update } = useStore()
-  const setStatus = (f: Friendship, status: FriendshipStatus, msg: string) => { update("friendships", (fs) => fs.map((x) => (x.friendship_id === f.friendship_id ? { ...x, status } : x))); toast(msg) }
+  const { friendships, userName, me, refresh } = useStore()
+  const [busy, setBusy] = useState("")
+  const act = async (friendship: Friendship, operation: string, success: string, args?: Record<string, unknown>) => {
+    setBusy(friendship.friendship_id)
+    try { await apiRpc(operation, args ?? { p_friendship_id: friendship.friendship_id }); await refresh(); toast.success(success) }
+    catch { toast.error("Could not update this friendship. Refresh and try again.") }
+    finally { setBusy("") }
+  }
 
-  return (
-    <>
-      <PageHeader title="Friends & trust" description="Debts can only be routed through friends who've set a trust limit." action={<AddFriendDialog />} />
+  return <>
+    <PageHeader title="Friends & trust" description="Friend links and directional limits control whether debts can be routed." action={<AddFriendDialog />} />
+    {friendships.length === 0 ? <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">Add a friend by exact username to start managing trust.</CardContent></Card> :
       <div className="grid gap-4 md:grid-cols-2">
-        {friendships.map((f) => {
-          const used = f.credit_limit_me_to_them ? (f.exposure_me_to_them / f.credit_limit_me_to_them) * 100 : 0
-          return (
-            <Spotlight key={f.friendship_id}><Card className="h-full">
-              <CardHeader>
-                <div className="flex items-center gap-3"><UserAvatar id={f.friend_id} className="size-10" />
-                  <div><CardTitle>{userName(f.friend_id)}</CardTitle><CardDescription><StatusBadge status={f.status} /></CardDescription></div>
-                </div>
-                {f.status === "ACTIVE" && (
-                  <CardAction>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild><Button variant="ghost" size="icon" aria-label={`Block ${userName(f.friend_id)}`}><Ban /></Button></AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader><AlertDialogTitle>Block {userName(f.friend_id)}?</AlertDialogTitle>
-                          <AlertDialogDescription>No new debts will be routed between you. Existing balances stay until settled.</AlertDialogDescription></AlertDialogHeader>
-                        <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction className="bg-destructive text-primary-foreground hover:bg-destructive/90" onClick={() => setStatus(f, "BLOCKED", `${userName(f.friend_id)} blocked`)}>Block</AlertDialogAction></AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </CardAction>
-                )}
-              </CardHeader>
-              {f.status === "ACTIVE" && (
-                <CardContent className="grid gap-4 text-sm">
-                  <div className="grid gap-2">
-                    <div className="flex justify-between"><span>Routed through you</span><span className="tabular-nums">{inr(f.exposure_me_to_them)} of {inr(f.credit_limit_me_to_them)}</span></div>
-                    <Progress value={used} aria-label="Trust limit used" />
-                  </div>
-                  <div className="flex justify-between text-muted-foreground"><span>Limit they gave you</span><span className="tabular-nums">{inr(f.credit_limit_them_to_me)}</span></div>
-                </CardContent>
-              )}
-              <CardFooter className="mt-auto gap-2">
-                {f.status === "ACTIVE" && <EditLimitDialog f={f} />}
-                <FriendHistory id={f.friend_id} />
-                {f.status === "PENDING" && <>
-                  <Button size="sm" onClick={() => setStatus(f, "ACTIVE", "Friend request accepted")}><Check /> Accept</Button>
-                  <Button size="sm" variant="outline" onClick={() => { update("friendships", (fs) => fs.filter((x) => x.friendship_id !== f.friendship_id)); toast("Request declined") }}><X /> Decline</Button>
-                </>}
-                {f.status === "BLOCKED" && <Button size="sm" variant="outline" onClick={() => setStatus(f, "ACTIVE", "Unblocked")}>Unblock</Button>}
-              </CardFooter>
-            </Card></Spotlight>
-          )
+        {friendships.map((friendship) => {
+          const used = Math.min(100, moneyRatio(friendship.exposure_me_to_them, friendship.credit_limit_me_to_them) * 100)
+          const incomingRequest = friendship.status === "PENDING" && friendship.requested_by !== me
+          return <Spotlight key={friendship.friendship_id}><Card className="h-full">
+            <CardHeader>
+              <div className="flex items-center gap-3"><UserAvatar id={friendship.friend_id} className="size-10" />
+                <div><CardTitle>{userName(friendship.friend_id)}</CardTitle><CardDescription><StatusBadge status={friendship.status} /></CardDescription></div>
+              </div>
+              {friendship.status === "ACTIVE" && <CardAction><AlertDialog>
+                <AlertDialogTrigger asChild><Button variant="ghost" size="icon" aria-label={`Block ${userName(friendship.friend_id)}`}><Ban /></Button></AlertDialogTrigger>
+                <AlertDialogContent><AlertDialogHeader><AlertDialogTitle>Block {userName(friendship.friend_id)}?</AlertDialogTitle>
+                  <AlertDialogDescription>Blocking stops new routing and optional reminders. Existing debts remain payable.</AlertDialogDescription></AlertDialogHeader>
+                  <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel><AlertDialogAction className="bg-destructive text-primary-foreground hover:bg-destructive/90" onClick={() => void act(friendship, "block_friend", `${userName(friendship.friend_id)} blocked`)}>Block</AlertDialogAction></AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog></CardAction>}
+            </CardHeader>
+            {friendship.status === "ACTIVE" && <CardContent className="grid gap-4 text-sm">
+              <div className="grid gap-2"><div className="flex justify-between"><span>Trust you granted</span><span className="tabular-nums">{inr(friendship.exposure_me_to_them)} used of {inr(friendship.credit_limit_me_to_them)}</span></div><Progress value={used} aria-label="Trust limit used" /></div>
+              <div className="flex justify-between text-muted-foreground"><span>Trust they granted you</span><span className="tabular-nums">{inr(friendship.credit_limit_them_to_me)}</span></div>
+            </CardContent>}
+            <CardFooter className="mt-auto gap-2">
+              {friendship.status === "ACTIVE" && <EditLimitDialog friendship={friendship} />}
+              <FriendHistory id={friendship.friend_id} />
+              {incomingRequest && <>
+                <Button size="sm" disabled={busy === friendship.friendship_id} onClick={() => void act(friendship, "respond_friendship", "Friend request accepted", { p_friendship_id: friendship.friendship_id, p_accept: true })}><Check /> Accept</Button>
+                <Button size="sm" variant="outline" disabled={busy === friendship.friendship_id} onClick={() => void act(friendship, "respond_friendship", "Friend request declined", { p_friendship_id: friendship.friendship_id, p_accept: false })}><X /> Decline</Button>
+              </>}
+              {friendship.status === "PENDING" && !incomingRequest && <span className="text-xs text-muted-foreground">Request sent · waiting for reply</span>}
+              {friendship.status === "BLOCKED" && <span className="text-xs text-muted-foreground">Blocked. Existing debts remain visible.</span>}
+              {friendship.status === "DECLINED" && <span className="text-xs text-muted-foreground">Request declined.</span>}
+            </CardFooter>
+          </Card></Spotlight>
         })}
-      </div>
-    </>
-  )
+      </div>}
+  </>
 }

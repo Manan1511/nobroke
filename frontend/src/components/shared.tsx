@@ -44,15 +44,15 @@ export function AvatarStack({ ids }: { ids: string[] }) {
 
 // Soft tinted badges: amber = still open, indigo = in progress, green = done, rose = blocked.
 const STATUS: Record<string, string> = {
-  OPEN: "bg-warning-soft text-warning", PARTIAL: "bg-info-soft text-info", SETTLED: "bg-positive-soft text-positive",
-  ARMED: "bg-info-soft text-info", TRIGGERED: "bg-positive-soft text-positive", CANCELLED: "bg-muted text-muted-foreground",
-  ACTIVE: "bg-positive-soft text-positive", PENDING: "bg-warning-soft text-warning", BLOCKED: "bg-negative-soft text-negative",
+  OPEN: "bg-warning-soft text-warning", PARTIAL: "bg-info-soft text-info", SETTLED: "bg-positive-soft text-positive", VOIDED: "bg-muted text-muted-foreground",
+  ARMED: "bg-info-soft text-info", EXHAUSTED: "bg-muted text-muted-foreground", TRIGGERED: "bg-positive-soft text-positive", CANCELLED: "bg-muted text-muted-foreground",
+  ACTIVE: "bg-positive-soft text-positive", PENDING: "bg-warning-soft text-warning", BLOCKED: "bg-negative-soft text-negative", DECLINED: "bg-muted text-muted-foreground",
 }
 const LABEL: Record<string, string> = {
-  OPEN: "Open", PARTIAL: "Partly paid", SETTLED: "Settled", ARMED: "Waiting", TRIGGERED: "Paid out", CANCELLED: "Cancelled",
-  ACTIVE: "Friends", PENDING: "Request pending", BLOCKED: "Blocked",
+  OPEN: "Open", PARTIAL: "Partly cleared", SETTLED: "Cleared", VOIDED: "Voided", ARMED: "Waiting", EXHAUSTED: "Limit reached", TRIGGERED: "Task created", CANCELLED: "Cancelled",
+  ACTIVE: "Friends", PENDING: "Request pending", BLOCKED: "Blocked", DECLINED: "Declined",
   EQUAL: "Equal", EXACT: "Exact amounts", INCOME_RATIO: "By income",
-  DIRECT: "Direct", MULTI_HOP: "Through friends", CASCADE_DOMINO: "Auto-forwarded", CYCLE_CLEAR: "Loop cleared",
+  DIRECT: "Outside payment", MULTI_HOP: "Debt route", CASCADE_DOMINO: "Forwarding task", CYCLE_CLEAR: "Cycle net · no cash",
   WEEKLY: "Weekly", MONTHLY: "Monthly", YEARLY: "Yearly",
 }
 export const label = (k: string) => LABEL[k] ?? k

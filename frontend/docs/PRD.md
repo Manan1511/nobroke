@@ -1,13 +1,15 @@
 # PRD.md — Social Liquidity & Automated Expense Clearinghouse
 
+> **Approved MVP contract:** this document's original sketches predate the Supabase implementation. Money stays in INR and the app is a debt ledger. People make payments outside NoBroke; debtor reports payment and creditor confirms receipt before debt changes. Routing reallocates debt without moving cash. Pay-when-paid rules create forwarding tasks, and each resulting payment needs separate receipt confirmation. Armed cycle netting clears ledger debt without cash. Trust defaults to ₹0.00 and increases only with explicit creditor consent. PostgreSQL owns all financial calculations and returns decimal strings. Exact salaries are discarded after conversion to private income bands.
+
 ## 1. Project Overview (Human Summary)
 
 This software helps groups of people share costs and pay debts easily. Standard apps only track who owes money inside one single group. This system connects all your groups and friends so you can clear debts with fewer cash payments.
 
 It does four main things:
-* **Pay debts through mutual friends:** If you owe money to a stranger in a large group, you do not have to pay them directly. The system finds a path of mutual friends between you and that stranger. It shifts the balances between those friends so you only pay people you know and trust.
-* **Pay automatically when others pay you:** You can set a rule on any debt: *"Pay my friend as soon as this other person pays me."* When money comes in from one friend, the system sends it to the next person automatically.
-* **Divide bills by private income:** Friends can divide shared costs like rent based on how much money each person makes. Every user types their monthly budget or income into a private box. The system calculates each person's fair share in secret. Nobody can see how much money another person makes.
+* **Route debt through mutual friends:** The system finds an eligible path and reallocates obligations between consenting friends. This changes who owes whom in NoBroke; it does not make or record a cash payment.
+* **Create pay-when-paid tasks:** You can link a receivable to a payable. After an outside payment is reported and the creditor confirms receipt, NoBroke may create a task for the next payment. The debtor makes that payment outside NoBroke, then the next creditor confirms receipt.
+* **Divide bills by private income bands:** Income splits require at least three participants. PostgreSQL converts each positive monthly income to one private weight and discards the original amount. No API returns a salary or band.
 * **Repeat regular bills automatically:** You can set up monthly bills like internet, rent, or streaming services one time. The system divides the cost and updates what everyone owes on the billing date each month.
 
 ---
@@ -16,13 +18,13 @@ It does four main things:
 
 1. **The "Two-Person Algebra Leak" in Private Income Splits:**
    * *The Flaw:* If User A and User B split a ₹1,000 bill by income, and User A sees they owe ₹400 while User B owes ₹600, User A knows User B makes 1.5x their salary. Since User A knows their own exact income, they immediately know User B's exact salary. Privacy is broken.
-   * *The Fix:* (a) Income-proportional splits require **at least 3 participants**, and (b) Raw salaries are converted into **discrete multiplier tiers** (e.g., Band 1 = `1.0x`, Band 2 = `1.25x`, Band 3 = `1.5x`) with optional randomized rounding to the nearest ₹10 so nobody can reverse-calculate exact rupee salaries.
+   * *The Fix:* Income-proportional splits require **at least 3 participants**. PostgreSQL stores only one of four weights: `1.00` below ₹25,000; `1.35` from ₹25,000 to ₹49,999.99; `1.75` from ₹50,000 to ₹99,999.99; `2.25` from ₹1,00,000 upward. Shares use deterministic largest-remainder paise allocation; no randomized rounding is used.
 2. **Unconsented Debt Shifting in Multi-Hop Routing:**
    * *The Flaw:* If User A owes Stranger D, and the system routes the debt through Friend B (A → B → D), Friend B is now stuck collecting money from User A instead of whatever balance they had before. If User A is slow to pay, Friend B gets burned without ever agreeing to the swap.
    * *The Fix:* Multi-hop routing can only traverse edges where users have explicitly set an active **Trust Credit Limit** (`credit_limit`), or where the hop *reduces* existing debt edges rather than creating new exposure.
 3. **Circular Deadlocks & Partial Payments in "Pay-When-Paid":**
    * *The Flaw:* If User A waits for B to pay, B waits for C to pay, and C waits for A to pay, all three payments sit frozen forever. Also, if B owes A ₹1,000, and B only pays ₹500, does A's ₹1,000 queued payment to X fire partially or wait?
-   * *The Fix:* Whenever a new `pay_when_paid` rule is inserted, a recursive trigger must check for closed loops. If a closed loop exists, the database settles the loop immediately for the minimum common amount. Partial inflows must trigger proportional partial cascades (`PARTIAL_CASCADE`).
+   * *The Fix:* Rule changes and relevant obligation changes trigger deterministic cycle detection. Consenting armed cycles net the minimum available debt amount without cash. Confirmed partial receipts may create bounded, reserved forwarding tasks; each downstream payment requires a separate report and creditor confirmation.
 
 ---
 
@@ -77,8 +79,8 @@ CREATE TABLE friendships (
     friendship_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_a UUID NOT NULL REFERENCES users(user_id),
     user_b UUID NOT NULL REFERENCES users(user_id),
-    credit_limit_a_to_b NUMERIC(12, 2) NOT NULL DEFAULT 2000.00 CHECK (credit_limit_a_to_b >= 0),
-    credit_limit_b_to_a NUMERIC(12, 2) NOT NULL DEFAULT 2000.00 CHECK (credit_limit_b_to_a >= 0),
+    credit_limit_a_to_b NUMERIC(12, 2) NOT NULL DEFAULT 0.00 CHECK (credit_limit_a_to_b >= 0),
+    credit_limit_b_to_a NUMERIC(12, 2) NOT NULL DEFAULT 0.00 CHECK (credit_limit_b_to_a >= 0),
     current_exposure_a_to_b NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     current_exposure_b_to_a NUMERIC(12, 2) NOT NULL DEFAULT 0.00,
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('PENDING', 'ACTIVE', 'BLOCKED')),

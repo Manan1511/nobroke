@@ -1,17 +1,17 @@
 // NoBroke landing page (from nobroke-source), rendered inside the React app at "/".
-// Links marked data-app-link open the app without a full page reload. Signed in (lib/session.js) ->
-// one ENTER button; signed out -> LOG IN / SIGN UP, and app links open the log-in panel first.
+// Links marked data-app-link open the app without a full page reload.
 import { useCallback, useEffect, useRef, useState } from "react"
-import { useNavigate } from "react-router"
-import { mountLanding } from "./scene"
+import { useNavigate, useSearchParams } from "react-router"
 import { AuthPanel, type AuthMode } from "./AuthPanel"
 import { useSession } from "@/lib/session"
+import { safePostLoginPath } from "@/lib/auth-navigation"
 import "./landing.css"
 import ShinyText from "@/components/bits/ShinyText"
 
 export default function Landing() {
   const root = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const session = useSession()
   const [auth, setAuth] = useState<AuthMode | null>(null)
   const [next, setNext] = useState("/app") // where to go after logging in
@@ -20,10 +20,62 @@ export default function Landing() {
   const closeAuth = useCallback(() => setAuth(null), [])
 
   useEffect(() => {
+    if (!session && searchParams.get("auth") === "login") {
+      setNext(safePostLoginPath(searchParams.get("next")))
+      setAuth("login")
+    }
+  }, [searchParams, session])
+
+  useEffect(() => {
     document.title = "NoBroke — Make moves. Unbound."
     const el = root.current
     if (!el) return
-    const cleanup = mountLanding(el)
+    const menuToggle = el.querySelector<HTMLButtonElement>("#menu-toggle")
+    const menuPanel = el.querySelector<HTMLElement>("#site-menu")
+    let menuOpen = false
+    const setFallbackMenu = (open: boolean, moveFocus = false, returnFocus = false) => {
+      if (!menuToggle || !menuPanel || menuOpen === open) return
+      menuOpen = open
+      menuToggle.classList.toggle("is-open", open)
+      menuToggle.setAttribute("aria-expanded", String(open))
+      menuToggle.setAttribute("aria-label", open ? "Close navigation" : "Open navigation")
+      menuPanel.setAttribute("aria-hidden", String(!open))
+      menuPanel.inert = !open
+      menuPanel.style.pointerEvents = open ? "auto" : "none"
+      if (open && moveFocus) menuPanel.querySelector("a")?.focus({ preventScroll: true })
+      if (!open && returnFocus) menuToggle.focus({ preventScroll: true })
+    }
+    const toggleFallbackMenu = () => setFallbackMenu(!menuOpen, !menuOpen)
+    const onOutsidePointer = (event: PointerEvent) => {
+      if (menuOpen && !menuPanel?.contains(event.target as Node) && !menuToggle?.contains(event.target as Node)) setFallbackMenu(false)
+    }
+    const onMenuKeydown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && menuOpen) { setFallbackMenu(false, false, true); return }
+      if (event.key !== "Tab" || !menuOpen || !menuPanel) return
+      const links = [...menuPanel.querySelectorAll<HTMLAnchorElement>("a[href]")]
+      if (event.shiftKey && document.activeElement === links[0]) { event.preventDefault(); links.at(-1)?.focus({ preventScroll: true }) }
+      else if (!event.shiftKey && document.activeElement === links.at(-1)) { event.preventDefault(); links[0]?.focus({ preventScroll: true }) }
+    }
+    const onMenuLink = (event: MouseEvent) => {
+      if ((event.target as Element).closest("a[href]")) setFallbackMenu(false)
+    }
+    menuToggle?.addEventListener("click", toggleFallbackMenu)
+    menuPanel?.addEventListener("click", onMenuLink)
+    document.addEventListener("pointerdown", onOutsidePointer)
+    document.addEventListener("keydown", onMenuKeydown)
+    let sceneCleanup = () => {}
+    let active = true
+    void import("./scene").then(({ mountLanding }) => {
+      if (!active) return
+      if (menuOpen) setFallbackMenu(false)
+      menuToggle?.removeEventListener("click", toggleFallbackMenu)
+      menuPanel?.removeEventListener("click", onMenuLink)
+      document.removeEventListener("pointerdown", onOutsidePointer)
+      document.removeEventListener("keydown", onMenuKeydown)
+      sceneCleanup = mountLanding(el, { animateIntro: false })
+    }).catch(() => {
+      // Static landing remains usable when optional WebGL effects cannot load.
+    })
     const onClick = (e) => {
       const a = e.target.closest("a[data-app-link]")
       if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return
@@ -32,11 +84,19 @@ export default function Landing() {
       else { setNext(a.getAttribute("href")); setAuth("login") }
     }
     el.addEventListener("click", onClick)
-    return () => { el.removeEventListener("click", onClick); cleanup() }
+    return () => {
+      active = false
+      el.removeEventListener("click", onClick)
+      menuToggle?.removeEventListener("click", toggleFallbackMenu)
+      menuPanel?.removeEventListener("click", onMenuLink)
+      document.removeEventListener("pointerdown", onOutsidePointer)
+      document.removeEventListener("keydown", onMenuKeydown)
+      sceneCleanup()
+    }
   }, [navigate])
 
   return (
-    <div ref={root} className="nb-landing nb-intro">
+    <div ref={root} className="nb-landing">
     <main className="page-shell">
       <section className="hero" id="hero" aria-label="NoBroke landing page hero">
         <canvas id="tube-scene" aria-hidden="true"></canvas>
@@ -136,7 +196,7 @@ export default function Landing() {
           ) : (
             <>
               <button type="button" className="pill-button" onClick={() => { setNext("/app"); setAuth("login") }}>LOG IN</button>
-              <button type="button" className="pill-button pill-solid" onClick={() => { setNext("/app"); setAuth("signup") }}>SIGN UP</button>
+              <button type="button" className="pill-button pill-solid" onClick={() => { setNext("/app"); setAuth("login") }}>TEAM ACCESS</button>
             </>
           )}
         </div>

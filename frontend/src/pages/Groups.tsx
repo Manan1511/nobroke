@@ -1,5 +1,5 @@
-import { useState } from "react"
-import { Plus, Users, MoreHorizontal, LogOut, Pencil, ArrowLeft, ArrowRight, UserMinus, Sparkles } from "lucide-react"
+import { useEffect, useState } from "react"
+import { Plus, Users, MoreHorizontal, LogOut, Pencil, ArrowLeft, UserMinus, Copy, Crown, History } from "lucide-react"
 import { toast } from "sonner"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter, CardAction } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -13,23 +13,29 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "@/components/ui/empty"
 import { PageHeader, AvatarStack, UserAvatar, label } from "@/components/shared"
-import { PeoplePicker, PersonHover } from "@/components/form-bits"
+import { PersonHover, SimpleSelect } from "@/components/form-bits"
 import { Money, Reveal, Spotlight } from "@/components/motion"
-import { useStore, newId } from "@/lib/store"
+import { useStore } from "@/lib/store"
 import { groupBalances } from "@/lib/api"
+import { apiRpc } from "@/lib/supabase"
 import { cn, inr } from "@/lib/utils"
 import type { Group } from "@/types"
 
 function CreateGroupDialog() {
-  const { friendships, update, me } = useStore()
+  const { refresh } = useStore()
   const [open, setOpen] = useState(false)
   const [name, setName] = useState("")
-  const [members, setMembers] = useState<string[]>([])
-  const friends = friendships.filter((f) => f.status === "ACTIVE").map((f) => f.friend_id)
-  const save = () => {
-    update("groups", (g) => [...g, { group_id: newId("g"), group_name: name.trim(), created_by: me, members: [me, ...members] }])
-    toast.success(`Group "${name.trim()}" created`)
-    setName(""); setMembers([]); setOpen(false)
+  const [saving, setSaving] = useState(false)
+  const save = async () => {
+    if (!name.trim()) return
+    setSaving(true)
+    try {
+      await apiRpc("create_group", { p_name: name.trim() })
+      await refresh()
+      toast.success(`Group "${name.trim()}" created. Invite friends from the group page.`)
+      setName(""); setOpen(false)
+    } catch { toast.error("Could not create this group. Check the name and try again.") }
+    finally { setSaving(false) }
   }
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -37,22 +43,17 @@ function CreateGroupDialog() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create group</DialogTitle>
-          <DialogDescription>Add friends now or invite more later.</DialogDescription>
+          <DialogDescription>Create the group, then share an invite link with each person.</DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>
             <FieldLabel htmlFor="gname">Group name</FieldLabel>
             <Input id="gname" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Hostel room 214" />
           </Field>
-          <Field>
-            <FieldLabel>Members</FieldLabel>
-            <PeoplePicker options={friends} value={members} onChange={setMembers} placeholder="Add friends" />
-            <FieldDescription>You're added automatically. Only accepted friends are listed.</FieldDescription>
-          </Field>
         </FieldGroup>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-          <Button disabled={!name.trim()} onClick={save}>Create group</Button>
+          <Button disabled={!name.trim() || saving} onClick={() => void save()}>{saving ? "Creating…" : "Create group"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -60,13 +61,16 @@ function CreateGroupDialog() {
 }
 
 function RenameGroupDialog({ group, open, onOpenChange }: { group: Group | null; open: boolean; onOpenChange: (v: boolean) => void }) {
-  const { update } = useStore()
+  const { refresh } = useStore()
   const [name, setName] = useState("")
   const change = (v: boolean) => { if (v && group) setName(group.group_name); onOpenChange(v) }
-  const save = () => {
+  const save = async () => {
     if (!group) return
-    update("groups", (gs) => gs.map((g) => (g.group_id === group.group_id ? { ...g, group_name: name.trim() } : g)))
-    toast.success(`Renamed to "${name.trim()}"`); onOpenChange(false)
+    try {
+      await apiRpc("rename_group", { p_group_id: group.group_id, p_name: name.trim() })
+      await refresh()
+      toast.success(`Renamed to "${name.trim()}"`); onOpenChange(false)
+    } catch { toast.error("Could not rename this group.") }
   }
   return (
     <Dialog open={open} onOpenChange={change}>
@@ -75,28 +79,104 @@ function RenameGroupDialog({ group, open, onOpenChange }: { group: Group | null;
         <Field><FieldLabel htmlFor="rename">Group name</FieldLabel><Input id="rename" value={name} onChange={(e) => setName(e.target.value)} /></Field>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button disabled={!name.trim() || name.trim() === group?.group_name} onClick={save}>Save name</Button>
+          <Button disabled={!name.trim() || name.trim() === group?.group_name} onClick={() => void save()}>Save name</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   )
 }
 
+function TransferOwnershipDialog({ group, open, onOpenChange }: { group: Group; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { me, userName, refresh } = useStore()
+  const candidates = group.members.filter((id) => id !== me)
+  const [newOwner, setNewOwner] = useState(candidates[0] ?? "")
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { if (open) setNewOwner(candidates[0] ?? "") }, [open, group.group_id])
+  const transfer = async () => {
+    setSaving(true)
+    try {
+      await apiRpc("transfer_group_ownership", { p_group_id: group.group_id, p_new_owner_id: newOwner })
+      await refresh(); toast.success(`${userName(newOwner)} now owns this group`); onOpenChange(false)
+    } catch { toast.error("Only the current owner can transfer ownership to an active member.") }
+    finally { setSaving(false) }
+  }
+  return <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent><DialogHeader><DialogTitle>Transfer group ownership</DialogTitle><DialogDescription>The new owner can manage members and invites. You remain a member.</DialogDescription></DialogHeader>
+      <Field><FieldLabel htmlFor="new-owner">New owner</FieldLabel><SimpleSelect id="new-owner" value={newOwner} onValueChange={setNewOwner} options={candidates.map((id) => ({ value: id, label: userName(id) }))} /></Field>
+      <DialogFooter><Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button><Button disabled={!newOwner || saving} onClick={() => void transfer()}>{saving ? "Transferring…" : "Transfer ownership"}</Button></DialogFooter>
+    </DialogContent>
+  </Dialog>
+}
+
 function GroupDetail({ group, onBack, onRename }: { group: Group; onBack: () => void; onRename: () => void }) {
-  const { expenses, friendships, userName, update, me } = useStore()
+  const { expenses, userName, refresh, me } = useStore()
   const list = expenses.filter((e) => e.group_id === group.group_id).sort((a, b) => b.created_at.localeCompare(a.created_at))
-  const { balances, transfers } = groupBalances(group, expenses)
-  const [adding, setAdding] = useState<string[]>([])
+  const [balances, setBalances] = useState<Array<{ user_id: string; net_amount: string }>>([])
+  const [balancesLoading, setBalancesLoading] = useState(true)
+  const [inviteLink, setInviteLink] = useState("")
+  const [inviteId, setInviteId] = useState("")
+  const [inviting, setInviting] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
-  const addable = friendships.filter((f) => f.status === "ACTIVE" && !group.members.includes(f.friend_id)).map((f) => f.friend_id)
-  const setMembers = (fn: (m: string[]) => string[]) => update("groups", (gs) => gs.map((g) => (g.group_id === group.group_id ? { ...g, members: fn(g.members) } : g)))
-  const total = list.reduce((s, e) => s + e.total_amount, 0)
+  const [transferring, setTransferring] = useState(false)
+  const [membershipHistory, setMembershipHistory] = useState<any[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setBalancesLoading(true)
+    groupBalances(group.group_id).then((rows) => {
+      if (active) setBalances(rows.map((row) => ({ user_id: row.user_id, net_amount: row.net_amount })))
+    }).catch(() => { if (active) setBalances([]) }).finally(() => { if (active) setBalancesLoading(false) })
+    return () => { active = false }
+  }, [group.group_id])
+
+  useEffect(() => {
+    let active = true
+    setHistoryLoading(true)
+    apiRpc<any[]>("list_group_membership_history", { p_group_id: group.group_id, p_after_id: null, p_limit: 100 })
+      .then((rows) => { if (active) setMembershipHistory(rows) })
+      .catch(() => { if (active) setMembershipHistory([]) })
+      .finally(() => { if (active) setHistoryLoading(false) })
+    return () => { active = false }
+  }, [group.group_id])
+
+  const createInvite = async () => {
+    setInviting(true)
+    try {
+      const invite = await apiRpc<{ invite_id: string; token: string }>("create_group_invite", { p_group_id: group.group_id })
+      const link = `${window.location.origin}/invite/${invite.token}`
+      setInviteId(invite.invite_id)
+      setInviteLink(link)
+      await navigator.clipboard?.writeText(link)
+      toast.success("Invite link copied. It expires in seven days and works once.")
+    } catch { toast.error("Could not create an invite. Group owners can create invite links.") }
+    finally { setInviting(false) }
+  }
+
+  const revokeInvite = async () => {
+    if (!inviteId) return
+    try {
+      await apiRpc("revoke_group_invite", { p_invite_id: inviteId })
+      setInviteId(""); setInviteLink(""); toast.success("Invite revoked")
+    } catch { toast.error("Could not revoke this invite.") }
+  }
+
+  const removeMember = async () => {
+    if (!removing) return
+    try {
+      await apiRpc("remove_group_member", { p_group_id: group.group_id, p_user_id: removing })
+      await refresh()
+      toast.success(`${userName(removing)} removed`)
+    } catch { toast.error("Member cannot leave while group balances or recurring bills remain.") }
+    finally { setRemoving(null) }
+  }
 
   return (
     <>
       <Button variant="ghost" className="w-fit" onClick={onBack}><ArrowLeft /> All groups</Button>
-      <PageHeader title={group.group_name} description={`${group.members.length} members · ${inr(total)} spent together`}
-        action={<Button variant="outline" onClick={onRename}><Pencil /> Rename</Button>} />
+      <PageHeader title={group.group_name} description={`${group.members.length} members · balances from posted expenses`}
+        action={<div className="flex gap-2"><Button variant="outline" onClick={onRename}><Pencil /> Rename</Button>
+          {group.owner_id === me && group.members.length > 1 && <Button variant="outline" onClick={() => setTransferring(true)}><Crown /> Transfer owner</Button>}</div>} />
       <Tabs defaultValue="balances">
         <TabsList>
           <TabsTrigger value="balances">Balances</TabsTrigger>
@@ -104,41 +184,23 @@ function GroupDetail({ group, onBack, onRename }: { group: Group; onBack: () => 
           <TabsTrigger value="members">Members ({group.members.length})</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="balances" className="grid gap-4 lg:grid-cols-2">
+        <TabsContent value="balances">
           <Card>
-            <CardHeader><CardTitle>Who's up, who's down</CardTitle><CardDescription>Each member's position across this group's expenses.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Who's up, who's down</CardTitle><CardDescription>Balances calculated by NoBroke from this group's obligation ledger.</CardDescription></CardHeader>
             <CardContent>
-              <Reveal className="grid gap-3" stagger={0.06}>
-                {balances.map((b) => (
-                  <div key={b.user_id} className="flex items-center gap-3">
-                    <UserAvatar id={b.user_id} className="size-8" />
-                    <span className="flex-1 text-sm">{b.user_id === me ? "You" : <PersonHover id={b.user_id} />}</span>
-                    <span className={cn("text-sm font-medium", b.net > 0 ? "text-positive" : b.net < 0 ? "text-negative" : "text-muted-foreground")}>
-                      {b.net === 0 ? "Square" : <>{b.net > 0 ? "+" : ""}<Money value={b.net} /></>}
+              {balancesLoading ? <p className="text-sm text-muted-foreground" aria-busy="true">Loading balances…</p> : <Reveal className="grid gap-3" stagger={0.06}>
+                {balances.map((balance) => {
+                  const net = Number(balance.net_amount)
+                  return (
+                  <div key={balance.user_id} className="flex items-center gap-3">
+                    <UserAvatar id={balance.user_id} className="size-8" />
+                    <span className="flex-1 text-sm">{balance.user_id === me ? "You" : <PersonHover id={balance.user_id} />}</span>
+                    <span className={cn("text-sm font-medium", net > 0 ? "text-positive" : net < 0 ? "text-negative" : "text-muted-foreground")}>
+                      {net === 0 ? "Square" : <>{net > 0 ? "+" : ""}<Money value={net} /></>}
                     </span>
                   </div>
-                ))}
-              </Reveal>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2"><Sparkles className="size-4 text-brand" /> Simplified debts</CardTitle>
-              <CardDescription>The fewest payments that settle everyone in this group.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {transfers.length === 0 ? <p className="text-sm text-muted-foreground">Everyone is square here.</p> : (
-                <Reveal className="grid gap-2" stagger={0.08}>
-                  {transfers.map((t, i) => (
-                    <div key={i} className="flex items-center gap-2 rounded-2xl border bg-background/40 p-3 text-sm">
-                      <UserAvatar id={t.from} className="size-7" /><span className="truncate">{userName(t.from)}</span>
-                      <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
-                      <UserAvatar id={t.to} className="size-7" /><span className="truncate">{userName(t.to)}</span>
-                      <span className="ml-auto font-medium tabular-nums">{inr(t.amount)}</span>
-                    </div>
-                  ))}
-                </Reveal>
-              )}
+                )})}
+              </Reveal>}
             </CardContent>
           </Card>
         </TabsContent>
@@ -167,34 +229,45 @@ function GroupDetail({ group, onBack, onRename }: { group: Group; onBack: () => 
                 {group.members.map((id) => (
                   <div key={id} className="flex items-center gap-3">
                     <UserAvatar id={id} /><span className="flex-1 text-sm">{id === me ? "You" : <PersonHover id={id} />}</span>
-                    {id === group.created_by && <Badge variant="secondary">Created the group</Badge>}
-                    {id !== me && <Button variant="ghost" size="icon" aria-label={`Remove ${userName(id)}`} onClick={() => setRemoving(id)}><UserMinus /></Button>}
+                    {id === group.owner_id && <Badge variant="secondary">Owner</Badge>}
+                    {id !== me && group.owner_id === me && <Button variant="ghost" size="icon" aria-label={`Remove ${userName(id)}`} onClick={() => setRemoving(id)}><UserMinus /></Button>}
                   </div>
                 ))}
               </Reveal>
-              <Field>
-                <FieldLabel>Add members</FieldLabel>
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
-                  <div className="flex-1"><PeoplePicker options={addable} value={adding} onChange={setAdding} placeholder={addable.length ? "Choose friends" : "All your friends are in this group"} /></div>
-                  <Button disabled={!adding.length} onClick={() => { setMembers((m) => [...m, ...adding]); toast.success(`Added ${adding.map(userName).join(", ")}`); setAdding([]) }}><Plus /> Add</Button>
-                </div>
-              </Field>
+              <div className="grid gap-2">
+                <FieldLabel>Invite a member</FieldLabel>
+                <Button className="w-fit" variant="outline" disabled={inviting} onClick={() => void createInvite()}>
+                  <Copy /> {inviting ? "Creating link…" : "Create one-use invite link"}
+                </Button>
+                {inviteLink && <Input readOnly value={inviteLink} aria-label="Group invite link" onFocus={(event) => event.currentTarget.select()} />}
+                {inviteId && <Button className="w-fit" variant="ghost" size="sm" onClick={() => void revokeInvite()}>Revoke this invite</Button>}
+                <p className="text-xs text-muted-foreground">The link expires after seven days. The invited person must sign in with their team account.</p>
+              </div>
+              <section className="grid gap-3 border-t pt-4">
+                <h3 className="flex items-center gap-2 text-sm font-medium"><History className="size-4" /> Membership history</h3>
+                {historyLoading && <p className="text-sm text-muted-foreground">Loading membership history…</p>}
+                {!historyLoading && membershipHistory.map((membership) => <div key={membership.membership_id} className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="flex-1">{membership.display_name} · joined {new Date(membership.joined_at).toLocaleDateString()}</span>
+                  {membership.removed_at ? <Badge variant="outline">Left {new Date(membership.removed_at).toLocaleDateString()}</Badge> : <Badge variant="secondary">Active</Badge>}
+                  {membership.role === "OWNER" && <Badge variant="secondary">Owner</Badge>}
+                </div>)}
+              </section>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
+      <TransferOwnershipDialog group={group} open={transferring} onOpenChange={setTransferring} />
+
       <AlertDialog open={!!removing} onOpenChange={(v) => !v && setRemoving(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove {removing ? userName(removing) : ""}?</AlertDialogTitle>
-            <AlertDialogDescription>They stop seeing new expenses in {group.group_name}. Balances they already have stay until settled.</AlertDialogDescription>
+            <AlertDialogDescription>Open debts, receivables, or active recurring billing roles must be cleared first. Their financial history stays in {group.group_name}.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-primary-foreground hover:bg-destructive/90" onClick={() => {
-              if (removing) { setMembers((m) => m.filter((x) => x !== removing)); toast.success(`${userName(removing)} removed`) }
-            }}>Remove</AlertDialogAction>
+            <AlertDialogAction className="bg-destructive text-primary-foreground hover:bg-destructive/90" onClick={() => void removeMember()}>Remove</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -203,7 +276,7 @@ function GroupDetail({ group, onBack, onRename }: { group: Group; onBack: () => 
 }
 
 export default function Groups() {
-  const { groups, update, me } = useStore()
+  const { groups, refresh, me } = useStore()
   const [openId, setOpenId] = useState<string | null>(null)
   const [leaving, setLeaving] = useState<Group | null>(null)
   const [renaming, setRenaming] = useState<Group | null>(null)
@@ -251,14 +324,15 @@ export default function Groups() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Leave {leaving?.group_name}?</AlertDialogTitle>
-            <AlertDialogDescription>Your open balances in this group stay until they're settled. You'll stop seeing new expenses.</AlertDialogDescription>
+            <AlertDialogDescription>Transfer ownership and clear your open debts, receivables, and active recurring billing roles before leaving. Your financial history stays in this group.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Stay</AlertDialogCancel>
             <AlertDialogAction className="bg-destructive text-primary-foreground hover:bg-destructive/90" onClick={() => {
               if (!leaving) return
-              update("groups", (gs) => gs.map((x) => (x.group_id === leaving.group_id ? { ...x, members: x.members.filter((m) => m !== me) } : x)))
-              toast.success(`Left ${leaving.group_name}`)
+              void apiRpc("leave_group", { p_group_id: leaving.group_id }).then(async () => {
+                await refresh(); toast.success(`Left ${leaving.group_name}`)
+              }).catch(() => toast.error("Transfer group ownership and clear your open balances before leaving."))
             }}>Leave group</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -51,6 +51,28 @@ Invite creation is owner-only. Tokens are random, stored as hashes, expire in se
 
 Exact salary input is converted immediately to a private band and discarded. No API returns salary or band. Income-ratio expenses require at least three distinct active participants and a configured band for each participant. Shares are fixed at posting time.
 
+## Profile, dashboard, and notifications
+
+| RPC | Arguments | Result |
+| --- | --- | --- |
+| `get_my_profile` | none | { user_id, username, display_name } |
+| `update_my_profile` | `p_username`, `p_display_name` | updated own profile |
+| `get_dashboard_summary` | none | active group count and current-month decimal-string aggregates |
+| `get_dashboard_balances` | none | caller's peer balances from PostgreSQL |
+| `get_dashboard_group_spending` | none | caller-visible group spending and server-calculated display percentages |
+| `list_group_membership_history` | `p_group_id`, optional cursor and limit | authorized membership history |
+| `list_my_spending` | optional `p_months` (1–24) | month, own share, own payments, group total |
+| `get_notification_preferences` | none | { reminders, cascades, recurring, social } |
+| `update_notification_preferences` | `p_preferences` object with all four booleans | saved preferences |
+| `get_notification_unread_count` | none | integer |
+| `list_notifications` | optional `p_after_created_at`, `p_after_id`, `p_limit` | newest-first cursor page |
+| `mark_notification_read` | `p_notification_id` | { notification_id, read } |
+| `mark_all_notifications_read` | none | { updated } |
+
+Profile reads return only the signed-in user's username and display name. Email stays in Supabase Auth. Notification rows and preferences have no browser table grants; authenticated access goes through caller-scoped RPCs. Preferences suppress optional notification delivery only. Open payment reports and forwarding tasks remain visible in their financial views.
+
+Dashboard and spending aggregates run in PostgreSQL and return money as decimal strings. The client may format these values for charts; it must not calculate balances or split amounts.
+
 ## Expenses
 
 | RPC | Arguments | Result |
@@ -58,7 +80,7 @@ Exact salary input is converted immediately to a private band and discarded. No 
 | `create_expense` | `p_group_id`, `p_title`, `p_total_amount`, `p_split_mode`, `p_paid_by`, `p_participants`, `p_request_id`, optional `p_exact_shares` | `{ expense_id }` |
 | `get_expense` | `p_expense_id` | `Expense` or `null` |
 | `list_expenses` | `p_group_id`, optional `p_after_id`, `p_limit` | `Expense[]` |
-| `void_expense` | `p_expense_id`, `p_reason` | `{ expense_id, status: 'VOIDED' }` |
+| `void_expense_request` | `p_expense_id`, `p_reason`, `p_request_id` | idempotent void result |
 | `replace_expense` | `p_expense_id`, `p_reason`, then create-expense arguments | `{ expense_id, replaces_expense_id }` |
 
 `p_split_mode` accepts `EQUAL`, `EXACT`, or `INCOME_RATIO`. Exact shares are JSON objects keyed by participant UUID, with decimal-string values, for example `{ "11111111-1111-4111-8111-111111111111": "33.34", "22222222-2222-4222-8222-222222222222": "33.33", "33333333-3333-4333-8333-333333333333": "33.33" }`. Keys must match the selected participants, and shares must total the expense amount. Amounts must be positive INR values with at most two fractional digits; the payer may be outside the participant list. Equal and income splits distribute leftover paise with deterministic largest-remainder rounding, UUID order breaking ties.
@@ -77,10 +99,20 @@ Generate a fresh UUID for `p_request_id` per new write and reuse it only for ret
 | `get_recurring_template` | `p_template_id` | `RecurringTemplate` or `null` |
 | `list_recurring_billing_runs` | `p_template_id`, optional `p_after_run_id`, `p_limit` | `BillingRun[]` |
 
-Frequencies are `WEEKLY`, `MONTHLY`, and `YEARLY`. Dates are interpreted in `Asia/Kolkata`; month-end and leap-day schedules retain their original anchor. Changes create versions for future billing dates. A failed occurrence does not advance the cursor, and failure details use a sanitized error code. Hosted Cron stays disabled until Person 3's production hooks are installed and expense, correction, and billing smoke tests pass. Then enable the worker once from the Supabase SQL editor with `select cron.schedule('nobroke-recurring-bills', '*/15 * * * *', 'select private.process_due_recurring_bills(50)');`.
+Frequencies are `WEEKLY`, `MONTHLY`, and `YEARLY`. Dates are interpreted in `Asia/Kolkata`; month-end and leap-day schedules retain their original anchor. Changes create versions for future billing dates. A failed occurrence does not advance the cursor, and failure details use a sanitized error code. Hosted Cron stays disabled until team-account Auth plus expense, correction, and billing smoke tests pass. Then schedule the protected worker with `select cron.schedule('nobroke-recurring-bills', '*/15 * * * *', 'select private.run_recurring_worker()');`. Observe a committed run before treating scheduler acceptance as complete.
+
+## Shared write ordering
+
+Every Person 2 and Person 3 mutation takes `private.lock_financial_writes()` before its first business row lock. Then lock group rows in UUID order, expense/template rows, and obligation rows in UUID order. Scheduled billing must call `private.run_recurring_worker()`; the inner occurrence worker is not the Cron entrypoint.
 
 ## Errors and boundary
 
 SQL raises stable machine-readable codes such as `authentication_required`, `group_access_denied`, `invalid_expense_amount`, `income_setup_required`, `income_split_requires_three_participants`, `idempotency_conflict`, `expense_correction_forbidden`, `active_recurring_bills_block_departure`, and `financial_integration_not_ready`. Person 3 may add obligation-specific codes for blocked corrections and departures. Map the returned PostgREST error `message` to UI copy; don't display raw database details.
 
-Person 3 owns obligation, settlement, payment-rule and cascade semantics. Expense create/void and membership departure call internal hooks synchronously. Until those functions exist and are granted to the restricted `nobroke_executor` role, those flows fail closed and roll back. Never grant browser roles access to the `private` schema or its hooks.
+Person 3 owns obligation, settlement, payment-rule and cascade semantics. The real Person 3 migrations install `private.post_expense_obligations(uuid)`, `private.void_expense_obligations(uuid)`, and `private.assert_member_can_leave(uuid, uuid)` as synchronous transaction hooks. Production calls fail closed if a hook is absent or not granted to the restricted `nobroke_executor` role. Test doubles exist only in the isolated PGlite database. Never grant browser roles access to `private` or its hooks.
+
+## Debt ledger and settlement APIs
+
+RPC families include `request_friendship`, `respond_friendship`, `block_friend`, `set_trust_limit`, `list_my_friends`; `list_my_obligations`, `get_group_balances`, `remind_debtor`; `report_payment`, `confirm_payment`, `reject_payment`, `cancel_payment`, and `list_payment_reports`; `preview_route`, `execute_route`, and `list_route_history`; `create_pay_when_paid_rule`, `cancel_pay_when_paid_rule`, `preview_pay_when_paid_rule`, `report_task_payment`, `list_my_pay_when_paid_rules`, `list_forwarding_tasks`, and `list_cycle_net_batches`; plus `list_settlement_history`.
+
+Trust means a creditor-granted borrowing limit for a debtor, default `0.00`. A debtor-reported outside payment reserves debt until the creditor confirms receipt. Routing changes obligations and is not a cash payment. Confirmed receipts can create reserved forwarding tasks; each downstream payment needs its own report and creditor confirmation. Armed cycle netting changes ledger obligations only and creates neither cash receipts nor forwarding tasks.
