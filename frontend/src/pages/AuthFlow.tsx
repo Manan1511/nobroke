@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react"
-import { Link, Navigate, useNavigate, useParams } from "react-router"
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { isSupabaseConfigured, apiRpc, supabase } from "@/lib/supabase"
 import { useAuthLoading, useSession } from "@/lib/session"
-import { inviteLoginHref } from "@/lib/auth-navigation"
+import { inviteLoginHref, safePostLoginPath } from "@/lib/auth-navigation"
 
 function Message({ title, children, href = "/", action = "Return to NoBroke" }: { title: string; children: React.ReactNode; href?: string; action?: string }) {
   return <main className="grid min-h-svh place-items-center p-4"><Card className="w-full max-w-md"><CardHeader><CardTitle>{title}</CardTitle><CardDescription>{children}</CardDescription></CardHeader><CardContent><Button asChild><Link to={href}>{action}</Link></Button></CardContent></Card></main>
@@ -14,8 +14,10 @@ function Message({ title, children, href = "/", action = "Return to NoBroke" }: 
 export function AuthCallback() {
   const session = useSession()
   const loading = useAuthLoading()
+  const [searchParams] = useSearchParams()
+  const next = safePostLoginPath(searchParams.get("next"))
   if (loading) return <Message title="Checking your link…">One moment while we verify your sign-in.</Message>
-  return session ? <Navigate to="/app" replace /> : <Message title="Link expired">Sign in again or request a fresh team invitation.</Message>
+  return session ? <Navigate to={next} replace /> : <Message title="Link expired">Sign in again or create an account to continue.</Message>
 }
 
 export function PasswordSetup() {
@@ -74,6 +76,6 @@ export function GroupInviteAcceptance() {
     return () => { active = false }
   }, [loading, session?.userId, token, navigate])
   if (loading) return <Message title="Checking your account…">One moment.</Message>
-  if (!session) return <Message title="Log in to accept this invite" href={inviteLoginHref(token)} action="Sign in">Sign in with the team account invited to this group.</Message>
+  if (!session) return <Message title="Sign in to accept this invite" href={inviteLoginHref(token)} action="Continue">Sign in or create an account, then we’ll return you here to accept the invite.</Message>
   return <Message title={failed ? "Invite unavailable" : "Joining group"}>{status}</Message>
 }

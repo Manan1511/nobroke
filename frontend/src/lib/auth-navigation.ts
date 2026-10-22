@@ -14,6 +14,10 @@ export function safePostLoginPath(value: string | null): string {
   }
 }
 
+export function authCallbackPath(next: string | null): string {
+  return `/auth/callback?next=${encodeURIComponent(safePostLoginPath(next))}`
+}
+
 export function inviteLoginHref(token: string): string {
   const invitePath = `/invite/${encodeURIComponent(token)}`
   return `/?auth=login&next=${encodeURIComponent(invitePath)}`
