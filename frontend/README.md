@@ -1,6 +1,6 @@
 # NoBroke frontend
 
-React + TypeScript + Vite client for NoBroke. Auth and financial data use hosted Supabase; all financial calculations run in PostgreSQL. The app is team-only and has no public signup.
+React + TypeScript + Vite client for NoBroke. Auth and financial data use hosted Supabase; all financial calculations run in PostgreSQL. Anyone can create an account with email confirmation. Groups and financial data remain available only through existing membership and database authorization checks.
 
 ## Local development
 
@@ -25,7 +25,7 @@ The root `netlify.toml` sets the Netlify base directory to `frontend`, runs `npm
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_PUBLISHABLE_KEY`
 
-Only the publishable key belongs in frontend settings; never add a service-role key. After the site is available, set Supabase Auth's Site URL to `https://nobroke.netlify.app` and allow these exact redirect URLs: `/auth/callback`, `/auth/reset`, and `/auth/invite` on that origin. The local Supabase config also retains localhost callback URLs for development. Public signup remains disabled.
+Only the publishable key belongs in frontend settings; never add a service-role key. Set Supabase Auth's Site URL to `https://nobroke.netlify.app`, keep public email signup enabled with email confirmation required, and allow `/auth/callback**`, `/auth/reset`, and `/auth/invite` on that origin. The callback pattern permits the validated `next` query used to resume a signup or invite. Local Supabase config allows localhost callback URLs and requires passwords of at least eight characters; match that password minimum in hosted Auth settings too. Until custom SMTP is configured, Supabase's default sender only delivers to authorized organization-team addresses and has strict rate limits, so public users cannot reliably receive confirmation emails.
 
 ## Checks
 

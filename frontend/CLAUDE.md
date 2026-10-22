@@ -1,6 +1,6 @@
 # NoBroke frontend context
 
-NoBroke is a team-only group expense and debt-ledger app. Preserve existing visual direction and routes while connecting screens to Supabase. Product behavior lives in [docs/PRD.md](docs/PRD.md); database boundary lives in `../backend/docs/backend-api.md`.
+NoBroke is a public-signup group expense and debt-ledger app. Email confirmation is required; groups and financial data remain protected by membership and database authorization. Preserve existing visual direction and routes while connecting screens to Supabase. Product behavior lives in [docs/PRD.md](docs/PRD.md); database boundary lives in `../backend/docs/backend-api.md`.
 
 ## Ownership and financial rules
 
@@ -10,7 +10,7 @@ NoBroke is a team-only group expense and debt-ledger app. Preserve existing visu
 - PostgreSQL computes splits, balances, routes, reservations, cascades, and dashboard aggregates. Frontend displays server results.
 - API money values are decimal strings. Never persist income, income bands, or financial app state in browser storage, logs, or analytics. Only Supabase SDK owns session persistence; theme preference may use local storage.
 - Outside payment changes debt only after creditor confirms receipt. Debt routing reallocates ledger obligations and moves no cash. Pay-when-paid rules create forwarding tasks; each task requires a separate reported payment and receipt confirmation. Cycle netting moves no cash.
-- Public signup is disabled. Users sign in or use admin-issued team invitations. Group invite links are one-use and accepted only after sign-in.
+- Anyone may create an account with email confirmation. Group invite links remain one-use and are accepted only after sign-in; public accounts gain no group or financial access until authorized through existing membership and RPC checks.
 
 ## Stack and structure
 
