@@ -20,9 +20,10 @@ export default function Landing() {
   const closeAuth = useCallback(() => setAuth(null), [])
 
   useEffect(() => {
-    if (!session && searchParams.get("auth") === "login") {
+    const requestedAuth = searchParams.get("auth")
+    if (!session && (requestedAuth === "login" || requestedAuth === "signup")) {
       setNext(safePostLoginPath(searchParams.get("next")))
-      setAuth("login")
+      setAuth(requestedAuth)
     }
   }, [searchParams, session])
 
@@ -196,7 +197,7 @@ export default function Landing() {
           ) : (
             <>
               <button type="button" className="pill-button" onClick={() => { setNext("/app"); setAuth("login") }}>LOG IN</button>
-              <button type="button" className="pill-button pill-solid" onClick={() => { setNext("/app"); setAuth("login") }}>TEAM ACCESS</button>
+              <button type="button" className="pill-button pill-solid" onClick={() => { setNext("/app"); setAuth("signup") }}>CREATE ACCOUNT</button>
             </>
           )}
         </div>
@@ -205,7 +206,7 @@ export default function Landing() {
         <div className="screen-reader-only" aria-live="polite" id="menu-announcement"></div>
       </section>
     </main>
-    {auth && <AuthPanel mode={auth} onModeChange={setAuth} onClose={closeAuth} onDone={() => { setAuth(null); navigate(next) }} />}
+    {auth && <AuthPanel mode={auth} next={next} onModeChange={setAuth} onClose={closeAuth} onDone={() => { setAuth(null); navigate(next) }} />}
     </div>
   )
 }
