@@ -14,9 +14,18 @@ The example contains only the hosted Supabase URL and publishable key. Keep any 
 
 ## Routes and behavior
 
-`/` is the landing/login page; `/auth/callback`, `/auth/reset`, `/auth/invite`, `/invite/:token`, and `/app/:section` handle Auth and protected app flows. `vercel.json` rewrites deep links to `index.html`.
+`/` is the landing/login page; `/auth/callback`, `/auth/reset`, `/auth/invite`, `/invite/:token`, and `/app/:section` handle Auth and protected app flows. Root `netlify.toml` builds this package and rewrites deep links to `index.html`.
 
 The existing pages cover dashboard, groups, expenses, balances, confirmed outside payments, debt routes, pay-when-paid forwarding tasks, recurring bills, friends/trust, notifications, and profile/privacy. Debt routing changes obligations but moves no cash. A reported outside payment reduces debt only after creditor confirmation. Forwarding tasks also require a separate payment report and confirmation.
+
+## Deployment
+
+The root `netlify.toml` sets the Netlify base directory to `frontend`, runs `npm run build`, publishes `dist`, and rewrites app routes to `index.html`. Set these site environment variables in the Netlify dashboard using the values in `.env.example`:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+
+Only the publishable key belongs in frontend settings; never add a service-role key. After the site is available, set Supabase Auth's Site URL to `https://nobroke.netlify.app` and allow these exact redirect URLs: `/auth/callback`, `/auth/reset`, and `/auth/invite` on that origin. The local Supabase config also retains localhost callback URLs for development. Public signup remains disabled.
 
 ## Checks
 

@@ -24,7 +24,7 @@ The production Person 3 hooks are `private.post_expense_obligations(uuid)`, `pri
 
 ## Hosted Auth and scheduler gates
 
-Public signup stays disabled. Hosted Auth still needs exact Site URL and callback/reset redirect origins for the final local and Vercel domains, plus team-account verification. The default sender is for low-volume team testing only.
+Public signup stays disabled. `supabase/config.toml` declares `https://nobroke.netlify.app` as the hosted Site URL and allows its callback, reset, and invite routes alongside localhost development routes. Push this Auth config to the hosted project after `supabase login` with `supabase config diff --project-ref wgsrncpjoqsjvqmsjvjc`, review the exact changes, then `supabase config push --project-ref wgsrncpjoqsjvqmsjvjc`. Team-account verification is still required. The default sender is for low-volume team testing only.
 
 Recurring worker SQL exists, but hosted Cron remains unscheduled until real team-account, expense/correction, and billing smoke tests pass. Then schedule `private.run_recurring_worker()` every 15 minutes and observe a committed run, unique occurrence, obligations, notification, and run record. If that gate fails, remove the schedule and preserve ledger history for diagnosis.
 

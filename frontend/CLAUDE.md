@@ -16,7 +16,7 @@ NoBroke is a team-only group expense and debt-ledger app. Preserve existing visu
 
 React 19, Vite, TypeScript, Tailwind CSS v4, Supabase JS, React Router 7, shadcn-compatible components, lucide-react, sonner, Recharts, GSAP, and Three.js. `src/landing/scene.ts` is a JavaScript port with `@ts-nocheck`; optional scene effects load dynamically. Shared API types are imported type-only from `../backend/src` through the `@backend/*` alias.
 
-- `src/main.tsx`: public, auth, and app routes; Vercel rewrites deep links to `index.html`.
+- `src/main.tsx`: public, auth, and app routes; Netlify rewrites deep links to `index.html` using the root `netlify.toml`.
 - `src/App.tsx`: authenticated shell, navigation, notifications, and lazy feature pages.
 - `src/pages/`: dashboard, groups, expenses, balances, settlements, pay-when-paid, recurring, friends/trust, and profile.
 - `src/lib/supabase.ts`: typed Supabase client and `api` schema RPC boundary.
