@@ -151,23 +151,23 @@ export default function App() {
     <SidebarProvider>
       <SpatialBackdrop />
       <AppSidebar page={page} onNavigate={go} />
-      <SidebarInset>
+      <SidebarInset className="min-w-0">
         <header className="spatial-panel sticky top-2 z-30 mx-2 mt-2 flex h-14 shrink-0 items-center gap-2 rounded-full px-3 md:mx-4">
           <SidebarTrigger className="-ml-1" />
           <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem className="hidden sm:block"><BreadcrumbLink className="cursor-pointer" onClick={() => go("dashboard")}>NoBroke</BreadcrumbLink></BreadcrumbItem>
+          <Breadcrumb className="min-w-0 flex-1 overflow-hidden">
+            <BreadcrumbList className="min-w-0 flex-nowrap overflow-hidden">
+              <BreadcrumbItem className="hidden min-w-0 sm:block"><BreadcrumbLink className="cursor-pointer whitespace-nowrap" onClick={() => go("dashboard")}>NoBroke</BreadcrumbLink></BreadcrumbItem>
               <BreadcrumbSeparator className="hidden sm:block" />
-              <BreadcrumbItem><BreadcrumbPage>{NAV.find((n) => n.id === page)?.label}</BreadcrumbPage></BreadcrumbItem>
+              <BreadcrumbItem className="min-w-0"><BreadcrumbPage className="block max-w-full truncate whitespace-nowrap">{NAV.find((n) => n.id === page)?.label}</BreadcrumbPage></BreadcrumbItem>
             </BreadcrumbList>
           </Breadcrumb>
           <div className="ml-auto flex items-center gap-2">
-            <Button variant="outline" size="sm" className="hidden w-56 justify-start text-muted-foreground md:flex" onClick={() => setSearchOpen(true)}>
+            <Button variant="outline" size="sm" className="hidden w-56 justify-start text-muted-foreground xl:flex" onClick={() => setSearchOpen(true)}>
               <Search /> Search…
               <KbdGroup className="ml-auto"><Kbd>Ctrl</Kbd><Kbd>K</Kbd></KbdGroup>
             </Button>
-            <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSearchOpen(true)} aria-label="Search"><Search /></Button>
+            <Button variant="ghost" size="icon" className="xl:hidden" onClick={() => setSearchOpen(true)} aria-label="Search"><Search /></Button>
             <span className="hidden sm:inline-flex"><Button size="sm" onClick={() => go("expenses")}><Plus /> Expense</Button></span>
             <NotificationsMenu onNavigate={go} />
             <Button variant="ghost" size="icon" onClick={() => setDark((d) => !d)} aria-label="Toggle dark mode">{dark ? <Sun /> : <Moon />}</Button>
@@ -186,7 +186,7 @@ export default function App() {
             </DropdownMenu>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-6xl flex-1 space-y-6 p-4 pb-28 md:p-8">
+        <main className="mx-auto w-full min-w-0 max-w-6xl flex-1 space-y-6 p-4 pb-28 md:p-8">
           <Suspense fallback={<div className="h-[60vh]" aria-busy="true" />}>
             <PageReveal key={page} className="space-y-6"><Page onNavigate={go} /></PageReveal>
           </Suspense>

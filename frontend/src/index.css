@@ -261,7 +261,7 @@ body { overflow-x: clip; }
 .spatial-backdrop span:nth-child(3) { width: 40vw; height: 40vw; left: 22vw; bottom: -18vw; background: var(--ambient-2); animation-delay: -17s; }
 .spatial-backdrop span:nth-child(4) { width: 26vw; height: 26vw; right: 18vw; bottom: 6vh; background: var(--ambient-4); animation-delay: -26s; }
 @keyframes drift { to { transform: translate3d(4vw, 3vh, 0) scale(1.08); } }
-[data-slot="sidebar-wrapper"] > :not(.spatial-backdrop) { position: relative; z-index: 1; }
+[data-slot="sidebar-wrapper"] > [data-slot="sidebar-inset"] { position: relative; z-index: 1; }
 @media (prefers-reduced-motion: reduce) { .spatial-backdrop span { animation: none; } }
 
 /* Page entrance (components/motion.tsx PageReveal): each block and card rises in after the one before. */
