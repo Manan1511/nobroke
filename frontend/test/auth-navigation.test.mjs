@@ -6,7 +6,7 @@ const { requestSignup } = await import("../src/lib/auth-signup.ts").catch(() => 
 const { validateAuthForm } = await import("../src/lib/auth-validation.ts").catch(() => ({}))
 const { resolveSelectedObligation } = await import("../src/lib/selection.ts").catch(() => ({}))
 
-test("invite login keeps the one-use group token through sign-in", () => {
+test("invite login keeps the reusable group token through sign-in", () => {
   assert.equal(inviteLoginHref("abc+/="), "/?auth=login&next=%2Finvite%2Fabc%252B%252F%253D")
 })
 

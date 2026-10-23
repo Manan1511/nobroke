@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(18);
+SELECT extensions.plan(23);
 
 SELECT extensions.has_schema('api', 'PostgREST API schema exists');
 SELECT extensions.has_schema('app', 'application tables use a non-exposed schema');
@@ -67,6 +67,34 @@ SELECT extensions.ok(
 SELECT extensions.ok(
   NOT EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'nobroke-recurring-bills'),
   'recurring worker waits for Person 3 hosted integration'
+);
+SELECT extensions.has_table('app', 'global_netting_preferences', 'global friend preferences are persisted privately');
+SELECT extensions.ok(
+  (SELECT count(*) = 6 AND bool_and(c.relrowsecurity)
+   FROM pg_catalog.pg_class c
+   JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'app' AND c.relname IN (
+     'global_netting_preferences', 'global_settlement_plans', 'global_settlement_participants',
+     'global_settlement_transfers', 'global_settlement_allocations', 'global_settlement_events'
+   )),
+  'global settlement tables enable row-level security'
+);
+SELECT extensions.ok(
+  NOT has_table_privilege('authenticated', 'app.global_netting_preferences', 'SELECT')
+    AND NOT has_table_privilege('authenticated', 'app.global_settlement_allocations', 'SELECT'),
+  'global preferences and allocation lineage cannot be read directly'
+);
+SELECT extensions.ok(
+  NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'api' AND p.proname LIKE '%global_settlement%'
+      AND p.prosecdef),
+  'global settlement API wrappers use invoker security'
+);
+SELECT extensions.ok(
+  has_function_privilege('authenticated', 'api.preview_global_settlement(uuid)', 'EXECUTE')
+    AND NOT has_function_privilege('anon', 'api.preview_global_settlement(uuid)', 'EXECUTE'),
+  'only authenticated users can preview global settlements'
 );
 
 SELECT * FROM extensions.finish();

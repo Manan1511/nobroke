@@ -10,7 +10,7 @@ NoBroke is a public-signup group expense and debt-ledger app. Email confirmation
 - PostgreSQL computes splits, balances, routes, reservations, cascades, and dashboard aggregates. Frontend displays server results.
 - API money values are decimal strings. Never persist income, income bands, or financial app state in browser storage, logs, or analytics. Only Supabase SDK owns session persistence; theme preference may use local storage.
 - Outside payment changes debt only after creditor confirms receipt. Debt routing reallocates ledger obligations and moves no cash. Pay-when-paid rules create forwarding tasks; each task requires a separate reported payment and receipt confirmation. Cycle netting moves no cash.
-- Anyone may create an account with email confirmation. Group invite links remain one-use and are accepted only after sign-in; public accounts gain no group or financial access until authorized through existing membership and RPC checks.
+- Anyone may create an account with email confirmation. Group invite links expire after seven days, can be reused until revoked, and are accepted only after sign-in; public accounts gain no group or financial access until authorized through existing membership and RPC checks. Owners can add active friends directly and may allow other members to add their own active friends.
 
 ## Stack and structure
 

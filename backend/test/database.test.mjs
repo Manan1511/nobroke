@@ -11,6 +11,7 @@ const migrationDirectory = resolve(root, 'supabase/migrations');
 const firstUser = 'd4bd8698-3510-4ca7-9b4f-a81514a0c9b0';
 const secondUser = '55a6be90-6386-41c2-96e2-f610431cc5eb';
 const thirdUser = '47e90c21-b808-4d5f-b44e-15da50286c74';
+const fourthUser = '0d2e3378-79ef-4d34-8ea7-b77d6e39d335';
 
 async function createDatabase({ installHooks = false } = {}) {
   const db = new PGlite({ extensions: { pgcrypto } });
@@ -108,6 +109,54 @@ async function addMember(db, groupId, userId) {
   await rpc(db, userId, 'accept_group_invite', { p_token: inviteRows[0].result.token });
 }
 
+async function makeFriends(db, requester, recipientUsername, recipient, acceptor) {
+  const { rows } = await rpc(db, requester, 'request_friendship', { p_username: recipientUsername });
+  await rpc(db, acceptor ?? recipient, 'respond_friendship', {
+    p_friendship_id: rows[0].result.friendship_id,
+    p_accept: true,
+  });
+}
+
+async function makeGlobalDebt(db, groupId, debtor, creditor, amount, requestId) {
+  const { rows } = await rpc(db, firstUser, 'create_expense', {
+    p_group_id: groupId,
+    p_title: 'Cross-group settlement debt',
+    p_total_amount: amount,
+    p_split_mode: 'EXACT',
+    p_paid_by: creditor,
+    p_participants: [debtor, creditor],
+    p_request_id: requestId,
+    p_exact_shares: { [debtor]: amount, [creditor]: '0.00' },
+  });
+  const { rows: obligations } = await db.query(`
+    SELECT obligation_id FROM app.obligations WHERE source_expense_id = $1`,
+  [rows[0].result.expense_id]);
+  return obligations[0].obligation_id;
+}
+
+async function prepareGlobalCycle(db) {
+  const userHarsh = await createGroup(db, firstUser, 'Global user-Harsh');
+  await addMember(db, userHarsh, secondUser);
+  const harshJv = await createGroup(db, firstUser, 'Global Harsh-JV');
+  await addMember(db, harshJv, secondUser);
+  await addMember(db, harshJv, thirdUser);
+  const jvUser = await createGroup(db, firstUser, 'Global JV-user');
+  await addMember(db, jvUser, thirdUser);
+  await makeFriends(db, firstUser, 'two', secondUser);
+  await makeFriends(db, secondUser, 'three', thirdUser);
+  await makeFriends(db, thirdUser, 'one', firstUser);
+  for (const userId of [firstUser, secondUser, thirdUser]) {
+    await rpc(db, userId, 'set_global_netting_preference', { p_enabled: true });
+  }
+  const userToHarsh = await makeGlobalDebt(db, userHarsh, firstUser, secondUser,
+    '50.00', '2f363e25-1f10-4fd9-a224-6d09e3158e54');
+  const harshToJv = await makeGlobalDebt(db, harshJv, secondUser, thirdUser,
+    '25.00', 'bb0dfd39-e4c4-43f3-b683-d207bb14908d');
+  const jvToUser = await makeGlobalDebt(db, jvUser, thirdUser, firstUser,
+    '25.00', '9094601e-adff-431c-9d37-493f797cd8d2');
+  return { userHarsh, harshJv, jvUser, userToHarsh, harshToJv, jvToUser };
+}
+
 test('signups create minimal private profiles without accepting auth metadata as authorization', async () => {
   const db = await createDatabase();
   try {
@@ -150,6 +199,25 @@ test('restricted RPCs resolve the caller without auth schema access', async () =
   }
 });
 
+test('global settlement list RPCs resolve the caller without auth schema access', async () => {
+  const db = await createDatabase();
+  try {
+    await db.exec('REVOKE USAGE ON SCHEMA auth FROM nobroke_executor');
+    const args = { p_after_created_at: null, p_after_plan_id: null, p_limit: 50 };
+    const { rows: plans } = await rpc(db, firstUser, 'list_global_settlement_plans', args);
+    assert.deepEqual(plans[0].result, []);
+
+    const { rows: history } = await rpc(db, firstUser, 'list_global_settlement_history', {
+      p_after_created_at: null,
+      p_after_transfer_id: null,
+      p_limit: 50,
+    });
+    assert.deepEqual(history[0].result, []);
+  } finally {
+    await db.close();
+  }
+});
+
 test('new accounts must confirm their preferred display name before the app uses it', async () => {
   const db = await createDatabase();
   try {
@@ -169,7 +237,53 @@ test('new accounts must confirm their preferred display name before the app uses
   }
 });
 
-test('Person 3 API wrappers pin their runtime search path', async () => {
+test('username availability reports only whether a valid username can be claimed', async () => {
+  const db = await createDatabase();
+  try {
+    const { rows: ownRows } = await rpc(db, firstUser, 'check_username_availability', {
+      p_username: 'one',
+    });
+    assert.equal(ownRows[0].result, true);
+
+    const { rows: takenRows } = await rpc(db, firstUser, 'check_username_availability', {
+      p_username: 'two',
+    });
+    assert.equal(takenRows[0].result, false);
+
+    const { rows: availableRows } = await rpc(db, firstUser, 'check_username_availability', {
+      p_username: 'fresh.handle-1',
+    });
+    assert.equal(availableRows[0].result, true);
+
+    await assert.rejects(
+      rpc(db, firstUser, 'check_username_availability', { p_username: 'not valid' }),
+      /invalid_profile/i,
+    );
+    await assert.rejects(
+      rpc(db, firstUser, 'check_username_availability', { p_username: null }),
+      /invalid_profile/i,
+    );
+
+    const { rows: privilegeRows } = await db.query(`
+      SELECT
+        pg_catalog.has_function_privilege('anon', 'api.check_username_availability(text)', 'EXECUTE') AS anon_can_check,
+        pg_catalog.has_function_privilege('authenticated', 'api.check_username_availability(text)', 'EXECUTE') AS authenticated_can_check,
+        p.prosecdef AS api_function_is_security_definer
+      FROM pg_catalog.pg_proc AS p
+      JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'api' AND p.proname = 'check_username_availability'
+    `);
+    assert.deepEqual(privilegeRows, [{
+      anon_can_check: false,
+      authenticated_can_check: true,
+      api_function_is_security_definer: false,
+    }]);
+  } finally {
+    await db.close();
+  }
+});
+
+test('financial API wrappers pin their runtime search path and use invoker security', async () => {
   const db = await createDatabase();
   try {
     const { rows } = await db.query(`
@@ -178,15 +292,19 @@ test('Person 3 API wrappers pin their runtime search path', async () => {
       JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
       WHERE n.nspname = 'api'
         AND p.proname = ANY($1::text[])
-        AND NOT COALESCE(p.proconfig @> ARRAY['search_path=pg_catalog'], false)
+        AND (NOT COALESCE(p.proconfig @> ARRAY['search_path=pg_catalog'], false) OR p.prosecdef)
       ORDER BY p.proname`, [[
-      'confirm_payment', 'block_friend', 'list_my_obligations', 'report_payment',
+      'confirm_payment', 'block_friend', 'remove_friend', 'list_my_obligations', 'report_payment',
       'list_cycle_net_batches', 'list_route_history', 'execute_route', 'remind_debtor',
       'request_friendship', 'create_pay_when_paid_rule', 'cancel_pay_when_paid_rule',
       'preview_pay_when_paid_rule', 'report_task_payment', 'list_my_pay_when_paid_rules',
       'list_forwarding_tasks', 'list_my_friends', 'list_payment_reports', 'reject_payment',
       'list_settlement_history', 'cancel_payment', 'preview_route', 'get_group_balances',
-      'respond_friendship', 'set_trust_limit',
+      'respond_friendship', 'set_trust_limit', 'get_global_netting_preference',
+      'set_global_netting_preference', 'preview_global_settlement', 'accept_global_settlement_plan',
+      'report_global_settlement_transfer', 'confirm_global_settlement_transfer',
+      'reject_global_settlement_transfer', 'cancel_global_settlement_transfer',
+      'get_global_settlement_plan', 'list_global_settlement_plans', 'list_global_settlement_history',
     ]]);
     assert.deepEqual(rows, []);
   } finally { await db.close(); }
@@ -377,7 +495,7 @@ test('expense retry is idempotent, largest-remainder shares conserve paise, and 
   }
 });
 
-test('invite tokens are one use, repeated acceptance is safe, and ownership transfer changes permissions', async () => {
+test('group invite links can be reused until revoked or expired, and ownership transfer changes permissions', async () => {
   const db = await createDatabase();
   try {
     const groupId = await createGroup(db);
@@ -386,8 +504,14 @@ test('invite tokens are one use, repeated acceptance is safe, and ownership tran
     await rpc(db, secondUser, 'accept_group_invite', { p_token: token });
     const { rows: acceptedAgain } = await rpc(db, secondUser, 'accept_group_invite', { p_token: token });
     assert.equal(acceptedAgain[0].result.group_id, groupId);
+    const { rows: thirdJoin } = await rpc(db, thirdUser, 'accept_group_invite', { p_token: token });
+    assert.equal(thirdJoin[0].result.group_id, groupId);
+    const { rows: memberships } = await rpc(db, firstUser, 'list_group_members', { p_group_id: groupId });
+    assert.deepEqual(new Set(memberships[0].result.map((member) => member.user_id)),
+      new Set([firstUser, secondUser, thirdUser]));
+    await rpc(db, firstUser, 'revoke_group_invite', { p_invite_id: inviteRows[0].result.invite_id });
     await assert.rejects(
-      rpc(db, thirdUser, 'accept_group_invite', { p_token: token }),
+      rpc(db, fourthUser, 'accept_group_invite', { p_token: token }),
       /invalid_or_expired_invite/i,
     );
     const { rows: expiringInvite } = await rpc(db, firstUser, 'create_group_invite', { p_group_id: groupId });
@@ -410,6 +534,120 @@ test('invite tokens are one use, repeated acceptance is safe, and ownership tran
       p_group_id: groupId, p_name: 'Renamed by new owner',
     });
     assert.equal(renamed[0].result.group_id, groupId);
+  } finally {
+    await db.close();
+  }
+});
+
+test('owners add active friends directly and control whether members can add their own friends', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db);
+    await addMember(db, groupId, secondUser);
+    await db.query(
+      `INSERT INTO auth.users (id, email, raw_user_meta_data)
+       VALUES ($1, 'four@example.test', '{"username":"four"}')`,
+      [fourthUser],
+    );
+    await makeFriends(db, firstUser, 'three', thirdUser);
+    await makeFriends(db, secondUser, 'four', fourthUser);
+
+    const { rows: initialGroup } = await rpc(db, secondUser, 'get_group', { p_group_id: groupId });
+    assert.equal(initialGroup[0].result.members_can_invite_friends, false);
+    await assert.rejects(
+      rpc(db, secondUser, 'add_group_friend', { p_group_id: groupId, p_friend_id: fourthUser }),
+      /group_member_invites_disabled/i,
+    );
+    await assert.rejects(
+      rpc(db, secondUser, 'set_group_member_invites', { p_group_id: groupId, p_enabled: true }),
+      /group_owner_required/i,
+    );
+    await assert.rejects(
+      rpc(db, firstUser, 'add_group_friend', { p_group_id: groupId, p_friend_id: fourthUser }),
+      /active_friendship_required/i,
+    );
+
+    const { rows: ownerAdd } = await rpc(db, firstUser, 'add_group_friend', {
+      p_group_id: groupId, p_friend_id: thirdUser,
+    });
+    assert.equal(ownerAdd[0].result.added, true);
+    await rpc(db, firstUser, 'set_group_member_invites', { p_group_id: groupId, p_enabled: true });
+    const { rows: enabledGroup } = await rpc(db, secondUser, 'get_group', { p_group_id: groupId });
+    assert.equal(enabledGroup[0].result.members_can_invite_friends, true);
+    const { rows: memberAdd } = await rpc(db, secondUser, 'add_group_friend', {
+      p_group_id: groupId, p_friend_id: fourthUser,
+    });
+    assert.equal(memberAdd[0].result.added, true);
+    await assert.rejects(
+      rpc(db, secondUser, 'remove_group_member', { p_group_id: groupId, p_user_id: thirdUser }),
+      /group_owner_required/i,
+    );
+    await rpc(db, firstUser, 'remove_group_member', { p_group_id: groupId, p_user_id: fourthUser });
+    const { rows: members } = await rpc(db, firstUser, 'list_group_members', { p_group_id: groupId });
+    assert.equal(members[0].result.some((member) => member.user_id === fourthUser), false);
+
+    await assert.rejects(
+      actAs(db, secondUser, () => db.query(
+        'UPDATE app.expense_groups SET members_can_invite_friends = false WHERE group_id = $1', [groupId],
+      )),
+      /permission denied/i,
+    );
+  } finally {
+    await db.close();
+  }
+});
+
+test('group invite security-definer helpers use JWT identity without executor auth-schema access', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db);
+    await addMember(db, groupId, secondUser);
+    await db.query(
+      `INSERT INTO auth.users (id, email, raw_user_meta_data)
+       VALUES ($1, 'four@example.test', '{"username":"four"}')`,
+      [fourthUser],
+    );
+    await makeFriends(db, secondUser, 'four', fourthUser);
+    const { rows: inviteRows } = await rpc(db, firstUser, 'create_group_invite', { p_group_id: groupId });
+
+    await db.exec(`
+      REVOKE USAGE ON SCHEMA auth FROM nobroke_executor;
+      REVOKE EXECUTE ON FUNCTION auth.uid() FROM nobroke_executor;
+    `);
+
+    await rpc(db, thirdUser, 'accept_group_invite', { p_token: inviteRows[0].result.token });
+    await rpc(db, firstUser, 'set_group_member_invites', { p_group_id: groupId, p_enabled: true });
+    const { rows: added } = await rpc(db, secondUser, 'add_group_friend', {
+      p_group_id: groupId, p_friend_id: fourthUser,
+    });
+    assert.equal(added[0].result.added, true);
+    await rpc(db, firstUser, 'revoke_group_invite', { p_invite_id: inviteRows[0].result.invite_id });
+  } finally {
+    await db.close();
+  }
+});
+
+test('owners can reload active group invite metadata and revoke links without exposing tokens', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db);
+    const { rows: membershipInvite } = await rpc(db, firstUser, 'create_group_invite', { p_group_id: groupId });
+    await rpc(db, secondUser, 'accept_group_invite', { p_token: membershipInvite[0].result.token });
+    const { rows: inviteRows } = await rpc(db, firstUser, 'create_group_invite', { p_group_id: groupId });
+
+    const { rows: activeInvites } = await rpc(db, firstUser, 'list_group_invites', { p_group_id: groupId });
+    assert.equal(activeInvites[0].result.length, 2);
+    for (const invite of activeInvites[0].result) {
+      assert.deepEqual(Object.keys(invite).sort(), ['created_at', 'expires_at', 'invite_id']);
+    }
+    await assert.rejects(
+      rpc(db, secondUser, 'list_group_invites', { p_group_id: groupId }),
+      /group_owner_required/i,
+    );
+
+    await rpc(db, firstUser, 'revoke_group_invite', { p_invite_id: inviteRows[0].result.invite_id });
+    const { rows: remainingInvites } = await rpc(db, firstUser, 'list_group_invites', { p_group_id: groupId });
+    assert.deepEqual(remainingInvites[0].result.map((invite) => invite.invite_id), [membershipInvite[0].result.invite_id]);
   } finally {
     await db.close();
   }
@@ -934,6 +1172,172 @@ test('debtor payment reports reserve debt until creditor confirms, with retry-sa
   } finally { await db.close(); }
 });
 
+test('payment reports cannot exceed the remaining net balance with the same peer', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db);
+    await addMember(db, groupId, secondUser);
+    const makeDebt = async (debtor, creditor, amount, requestId) => {
+      const { rows } = await rpc(db, debtor, 'create_expense', {
+        p_group_id: groupId, p_title: 'Shared balance', p_total_amount: amount,
+        p_split_mode: 'EXACT', p_paid_by: creditor, p_participants: [debtor, creditor],
+        p_request_id: requestId, p_exact_shares: { [debtor]: amount, [creditor]: '0.00' },
+      });
+      const { rows: debtRows } = await db.query(
+        'SELECT obligation_id FROM app.obligations WHERE source_expense_id = $1',
+        [rows[0].result.expense_id],
+      );
+      return debtRows[0].obligation_id;
+    };
+
+    await makeDebt(firstUser, secondUser, '600.00', 'e03aaf77-f837-4942-b31b-6bf4d7e95a01');
+    const incomingOne = await makeDebt(secondUser, firstUser, '375.00', 'e03aaf77-f837-4942-b31b-6bf4d7e95a02');
+    const incomingTwo = await makeDebt(secondUser, firstUser, '250.00', 'e03aaf77-f837-4942-b31b-6bf4d7e95a03');
+
+    const { rows: positions } = await rpc(db, secondUser, 'get_dashboard_balances');
+    assert.equal(positions[0].result.find((row) => row.user_id === firstUser).net_amount, '-25.00');
+
+    await assert.rejects(rpc(db, secondUser, 'report_payment', {
+      p_obligation_id: incomingOne, p_amount: '26.00',
+      p_request_id: 'e03aaf77-f837-4942-b31b-6bf4d7e95a04',
+    }), /payment_exceeds_net_peer_balance/i);
+    assert.equal(positions[0].result.find((row) => row.user_id === firstUser).available_to_pay, '25.00');
+
+    const firstReport = await rpc(db, secondUser, 'report_payment', {
+      p_obligation_id: incomingOne, p_amount: '20.00',
+      p_request_id: 'e03aaf77-f837-4942-b31b-6bf4d7e95a05',
+    });
+    const { rows: reducedPosition } = await rpc(db, secondUser, 'get_dashboard_balances');
+    assert.equal(reducedPosition[0].result.find((row) => row.user_id === firstUser).available_to_pay, '5.00');
+    await assert.rejects(rpc(db, secondUser, 'report_payment', {
+      p_obligation_id: incomingTwo, p_amount: '6.00',
+      p_request_id: 'e03aaf77-f837-4942-b31b-6bf4d7e95a06',
+    }), /payment_exceeds_net_peer_balance/i);
+
+    const secondReport = await rpc(db, secondUser, 'report_payment', {
+      p_obligation_id: incomingTwo, p_amount: '5.00',
+      p_request_id: 'e03aaf77-f837-4942-b31b-6bf4d7e95a07',
+    });
+    const { rows: reservedPosition } = await rpc(db, secondUser, 'get_dashboard_balances');
+    assert.equal(reservedPosition[0].result.find((row) => row.user_id === firstUser).available_to_pay, '0.00');
+
+    await rpc(db, firstUser, 'confirm_payment', { p_payment_id: firstReport.rows[0].result.payment_id });
+    await rpc(db, firstUser, 'confirm_payment', { p_payment_id: secondReport.rows[0].result.payment_id });
+    const { rows: clearedPosition } = await rpc(db, secondUser, 'get_dashboard_balances');
+    assert.equal(clearedPosition[0].result.find((row) => row.user_id === firstUser).net_amount, '0.00');
+  } finally { await db.close(); }
+});
+
+test('individual payment reports settle one debt above the net and recalculate both users after confirmation', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db);
+    await addMember(db, groupId, secondUser);
+    const makeDebt = async (sourceGroup, debtor, creditor, amount, requestId) => {
+      const { rows } = await rpc(db, debtor, 'create_expense', {
+        p_group_id: sourceGroup, p_title: 'Individual settlement', p_total_amount: amount,
+        p_split_mode: 'EXACT', p_paid_by: creditor, p_participants: [debtor, creditor],
+        p_request_id: requestId, p_exact_shares: { [debtor]: amount, [creditor]: '0.00' },
+      });
+      const { rows: debtRows } = await db.query(
+        'SELECT obligation_id FROM app.obligations WHERE source_expense_id = $1',
+        [rows[0].result.expense_id],
+      );
+      return debtRows[0].obligation_id;
+    };
+
+    await makeDebt(groupId, firstUser, secondUser, '600.00', '9b712ca0-b9f7-4d05-9f0b-d4027ac86001');
+    const individualDebt = await makeDebt(groupId, secondUser, firstUser, '375.00', '9b712ca0-b9f7-4d05-9f0b-d4027ac86002');
+    await makeDebt(groupId, secondUser, firstUser, '250.00', '9b712ca0-b9f7-4d05-9f0b-d4027ac86003');
+    const otherGroup = await createGroup(db, firstUser, 'Another friend');
+    await addMember(db, otherGroup, thirdUser);
+    const unrelatedDebt = await makeDebt(otherGroup, thirdUser, firstUser, '10.00', '9b712ca0-b9f7-4d05-9f0b-d4027ac86006');
+
+    const { rows: visibleRows } = await actAs(db, secondUser, () => db.query(
+      'SELECT obligation_id FROM app.obligations ORDER BY obligation_id'));
+    assert.equal(visibleRows.length, 3, 'Realtime table reads are scoped to either side of the current user\'s debts');
+    assert.equal(visibleRows.some((row) => row.obligation_id === unrelatedDebt), false);
+
+    const { rows: before } = await rpc(db, secondUser, 'get_dashboard_balances');
+    assert.equal(before[0].result.find((row) => row.user_id === firstUser).net_amount, '-25.00');
+    await assert.rejects(rpc(db, secondUser, 'report_individual_payment', {
+      p_obligation_id: individualDebt, p_amount: '376.00',
+      p_request_id: '9b712ca0-b9f7-4d05-9f0b-d4027ac86004',
+    }), /payment_exceeds_unreserved_debt/i);
+
+    const { rows: report } = await rpc(db, secondUser, 'report_individual_payment', {
+      p_obligation_id: individualDebt, p_amount: '100.00',
+      p_request_id: '9b712ca0-b9f7-4d05-9f0b-d4027ac86005',
+    });
+    const { rows: pendingBalance } = await rpc(db, secondUser, 'get_dashboard_balances');
+    assert.equal(pendingBalance[0].result.find((row) => row.user_id === firstUser).net_amount, '-25.00');
+    await rpc(db, firstUser, 'confirm_payment', { p_payment_id: report[0].result.payment_id });
+
+    const { rows: payerBalance } = await rpc(db, secondUser, 'get_dashboard_balances');
+    const { rows: creditorBalance } = await rpc(db, firstUser, 'get_dashboard_balances');
+    assert.equal(payerBalance[0].result.find((row) => row.user_id === firstUser).net_amount, '75.00');
+    assert.equal(creditorBalance[0].result.find((row) => row.user_id === secondUser).net_amount, '-75.00');
+
+    const { rows: privileges } = await db.query(`
+      SELECT has_function_privilege('authenticated', 'api.report_individual_payment(uuid,numeric,uuid)', 'EXECUTE') AS authenticated_can_report,
+        has_function_privilege('anon', 'api.report_individual_payment(uuid,numeric,uuid)', 'EXECUTE') AS anonymous_can_report`);
+    assert.deepEqual(privileges, [{ authenticated_can_report: true, anonymous_can_report: false }]);
+  } finally { await db.close(); }
+});
+
+test('removed friends disappear from the friend list while debts and settlement history remain', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db, firstUser, 'Former friends');
+    await addMember(db, groupId, secondUser);
+    await makeFriends(db, firstUser, 'two', secondUser);
+    const obligationId = await makeGlobalDebt(db, groupId, firstUser, secondUser,
+      '25.00', 'ec70e931-dc0c-4a31-8c20-fc90a39b83bb');
+    const { rows: payment } = await rpc(db, firstUser, 'report_payment', {
+      p_obligation_id: obligationId,
+      p_amount: '5.00',
+      p_request_id: '4b51d83c-44b9-4bb2-8fcf-75ac2a7f69e2',
+    });
+    await rpc(db, secondUser, 'confirm_payment', { p_payment_id: payment[0].result.payment_id });
+    const { rows: friendshipRows } = await db.query(`
+      SELECT friendship_id FROM app.friendships
+      WHERE user_a = LEAST($1::uuid, $2::uuid) AND user_b = GREATEST($1::uuid, $2::uuid)`,
+    [firstUser, secondUser]);
+    const friendshipId = friendshipRows[0].friendship_id;
+
+    const { rows: privileges } = await db.query(`
+      SELECT has_function_privilege('authenticated', 'api.remove_friend(uuid)', 'EXECUTE') AS authenticated_can_remove,
+        has_function_privilege('anon', 'api.remove_friend(uuid)', 'EXECUTE') AS anonymous_can_remove`);
+    assert.deepEqual(privileges, [{ authenticated_can_remove: true, anonymous_can_remove: false }]);
+    await assert.rejects(
+      rpc(db, thirdUser, 'remove_friend', { p_friendship_id: friendshipId }),
+      /friendship_not_found/i,
+    );
+
+    await rpc(db, firstUser, 'remove_friend', { p_friendship_id: friendshipId });
+
+    const { rows: friendship } = await db.query(`
+      SELECT status FROM app.friendships WHERE friendship_id = $1`, [friendshipId]);
+    const { rows: visibleFriends } = await rpc(db, firstUser, 'list_my_friends');
+    const { rows: debt } = await db.query(`
+      SELECT status, remaining_amount::text FROM app.obligations WHERE obligation_id = $1`,
+    [obligationId]);
+    const { rows: history } = await db.query(`
+      SELECT settlement_type, amount::text FROM app.settlement_records WHERE obligation_id = $1`,
+    [obligationId]);
+
+    assert.equal(friendship[0].status, 'REMOVED');
+    assert.deepEqual(visibleFriends[0].result, []);
+    assert.deepEqual(debt, [{ status: 'PARTIAL', remaining_amount: '20.00' }]);
+    assert.deepEqual(history, [{ settlement_type: 'EXTERNAL_PAYMENT', amount: '5.00' }]);
+
+    const { rows: newRequest } = await rpc(db, firstUser, 'request_friendship', { p_username: 'two' });
+    assert.equal(newRequest[0].result.friendship_id, friendshipId);
+    const { rows: pendingFriends } = await rpc(db, firstUser, 'list_my_friends');
+    assert.equal(pendingFriends[0].result[0].status, 'PENDING');
+  } finally { await db.close(); }
+});
+
 test('friend trust is directional and a route consumes consented exposure while preserving lineage', async () => {
   const db = await createDatabase();
   try {
@@ -1281,5 +1685,583 @@ test('forwarding allocation rounds within each payable target and never over-res
     assert.deepEqual(Object.fromEntries(tasks.map((task) => [task.target_obligation_id, task.amount])), {
       [firstTarget]: '0.01', [secondTarget]: '0.01',
     });
+  } finally { await db.close(); }
+});
+
+test('friendship Realtime reads are limited to rows involving the authenticated user', async () => {
+  const db = await createDatabase();
+  try {
+    await db.query(`
+      INSERT INTO app.friendships (user_a, user_b, requested_by, status) VALUES
+        ($2, $1, $1, 'PENDING'),
+        ($3, $2, $2, 'ACTIVE')`, [firstUser, secondUser, thirdUser]);
+
+    const { rows: grants } = await db.query(`
+      SELECT has_table_privilege('authenticated', 'app.friendships', 'SELECT') AS can_read,
+        EXISTS (
+          SELECT 1 FROM pg_catalog.pg_policies
+          WHERE schemaname = 'app' AND tablename = 'friendships'
+            AND policyname = 'friendships_participant_read'
+        ) AS has_participant_policy`);
+    assert.deepEqual(grants, [{ can_read: true, has_participant_policy: true }]);
+
+    const readFriendships = (userId) => actAs(db, userId, async () => {
+      const { rows } = await db.query(`
+        SELECT user_a, user_b, status FROM app.friendships ORDER BY user_a`);
+      return rows;
+    });
+    assert.deepEqual(await readFriendships(firstUser), [{
+      user_a: secondUser, user_b: firstUser, status: 'PENDING',
+    }]);
+    assert.equal((await readFriendships(secondUser)).length, 2);
+    assert.deepEqual(await readFriendships(thirdUser), [{
+      user_a: thirdUser, user_b: secondUser, status: 'ACTIVE',
+    }]);
+  } finally { await db.close(); }
+});
+
+test('global netting defaults on, supports opt-out, and keeps preferences private', async () => {
+  const db = await createDatabase();
+  try {
+    const { rows: initial } = await rpc(db, firstUser, 'get_global_netting_preference');
+    assert.deepEqual(initial[0].result, { enabled: true });
+
+    const { rows: unchanged } = await rpc(db, secondUser, 'get_global_netting_preference');
+    assert.deepEqual(unchanged[0].result, { enabled: true });
+
+    const { rows: disabled } = await rpc(db, firstUser, 'set_global_netting_preference', {
+      p_enabled: false,
+    });
+    assert.deepEqual(disabled[0].result, { enabled: false });
+    const { rows: persisted } = await rpc(db, firstUser, 'get_global_netting_preference');
+    assert.deepEqual(persisted[0].result, { enabled: false });
+    await assert.rejects(rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: '5177f8ee-6a15-4d2c-af56-27dcb4f4b1c6',
+    }), /global_netting_disabled/i);
+
+    await makeFriends(db, firstUser, 'two', secondUser);
+    const { rows: friendRows } = await rpc(db, firstUser, 'list_my_friends');
+    assert.equal(friendRows[0].result[0].global_netting_enabled, true);
+    await rpc(db, secondUser, 'set_global_netting_preference', { p_enabled: false });
+    const { rows: optedOutFriendRows } = await rpc(db, firstUser, 'list_my_friends');
+    assert.equal(optedOutFriendRows[0].result[0].global_netting_enabled, false);
+
+    const { rows: grants } = await db.query(`
+      SELECT has_table_privilege('authenticated', 'app.global_netting_preferences', 'SELECT') AS can_read,
+        has_table_privilege('authenticated', 'app.global_netting_preferences', 'INSERT') AS can_insert,
+        has_function_privilege('anon', 'api.set_global_netting_preference(boolean)', 'EXECUTE') AS anon_can_set,
+        has_function_privilege('authenticated', 'api.set_global_netting_preference(boolean)', 'EXECUTE') AS auth_can_set`);
+    assert.deepEqual(grants, [{ can_read: false, can_insert: false, anon_can_set: false, auth_can_set: true }]);
+    await assert.rejects(
+      actAs(db, firstUser, () => db.query('SELECT * FROM app.global_netting_preferences')),
+      /permission denied/i,
+    );
+  } finally { await db.close(); }
+});
+
+test('global settlement tables keep plan participants and allocations linked', async () => {
+  const db = await createDatabase();
+  try {
+    const { rows: tables } = await db.query(`
+      SELECT c.relname AS table_name, c.relrowsecurity AS rls_enabled
+      FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'app' AND c.relname = ANY($1::text[])
+      ORDER BY c.relname`, [[
+      'global_netting_preferences', 'global_settlement_plans', 'global_settlement_participants',
+      'global_settlement_transfers', 'global_settlement_allocations', 'global_settlement_events',
+    ]]);
+    assert.equal(tables.length, 6);
+    assert.ok(tables.every((table) => table.rls_enabled));
+
+    const { rows: foreignKeys } = await db.query(`
+      SELECT child.relname AS table_name, parent.relname AS referenced_table
+      FROM pg_catalog.pg_constraint c
+      JOIN pg_catalog.pg_class child ON child.oid = c.conrelid
+      JOIN pg_catalog.pg_namespace n ON n.oid = child.relnamespace
+      JOIN pg_catalog.pg_class parent ON parent.oid = c.confrelid
+      WHERE n.nspname = 'app' AND c.contype = 'f'
+        AND child.relname IN ('global_settlement_participants', 'global_settlement_allocations')
+      ORDER BY child.relname, parent.relname`);
+    assert.ok(foreignKeys.some((row) => row.table_name === 'global_settlement_participants'
+      && row.referenced_table === 'global_settlement_plans'));
+    assert.ok(foreignKeys.some((row) => row.table_name === 'global_settlement_allocations'
+      && row.referenced_table === 'obligations'));
+    const { rows: grants } = await db.query(`
+      SELECT bool_and(NOT has_table_privilege('authenticated', 'app.' || table_name, 'SELECT')) AS no_direct_reads
+      FROM unnest($1::text[]) AS tables(table_name)`, [[
+      'global_netting_preferences', 'global_settlement_plans', 'global_settlement_participants',
+      'global_settlement_transfers', 'global_settlement_allocations', 'global_settlement_events',
+    ]]);
+    assert.deepEqual(grants, [{ no_direct_reads: true }]);
+    const { rows: functionGrants } = await db.query(`
+      SELECT has_function_privilege('authenticated', 'private.create_global_settlement_preview(uuid)', 'EXECUTE') AS wrapper_helper_executable,
+        has_function_privilege('authenticated', 'private.create_or_reuse_global_settlement_preview(uuid)', 'EXECUTE') AS dedupe_helper_executable,
+        has_function_privilege('authenticated', 'api.preview_global_settlement(uuid)', 'EXECUTE') AS authenticated_can_preview,
+        has_function_privilege('anon', 'api.preview_global_settlement(uuid)', 'EXECUTE') AS anon_can_preview,
+        has_function_privilege('authenticated', 'private.cancel_global_settlement_plan(uuid)', 'EXECUTE') AS cancel_helper_executable,
+        has_function_privilege('authenticated', 'api.cancel_global_settlement_plan(uuid)', 'EXECUTE') AS authenticated_can_cancel,
+        has_function_privilege('anon', 'api.cancel_global_settlement_plan(uuid)', 'EXECUTE') AS anon_can_cancel`);
+    assert.deepEqual(functionGrants, [{
+      wrapper_helper_executable: true, dedupe_helper_executable: true, authenticated_can_preview: true, anon_can_preview: false,
+      cancel_helper_executable: true, authenticated_can_cancel: true, anon_can_cancel: false,
+    }]);
+    const { rows: executorIdentity } = await db.query(`
+      SELECT p.proname, p.prosrc
+      FROM pg_catalog.pg_proc p
+      JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'private'
+        AND p.proname IN ('create_or_reuse_global_settlement_preview', 'cancel_global_settlement_plan')
+      ORDER BY p.proname`);
+    assert.deepEqual(executorIdentity.map(({ proname, prosrc }) => ({
+      proname,
+      uses_request_user_id: prosrc.includes('private.request_user_id()'),
+      uses_protected_auth_schema: prosrc.includes('auth.uid()'),
+    })), [
+      { proname: 'cancel_global_settlement_plan', uses_request_user_id: true, uses_protected_auth_schema: false },
+      { proname: 'create_or_reuse_global_settlement_preview', uses_request_user_id: true, uses_protected_auth_schema: false },
+    ]);
+    const { rows: exposedSchemas } = await db.query(`
+      SELECT r.rolconfig FROM pg_catalog.pg_roles r WHERE r.rolname = 'authenticator'`);
+    assert.ok(exposedSchemas[0].rolconfig.some((setting) => setting === 'pgrst.db_schemas=api, public, graphql_public'));
+    assert.ok(!exposedSchemas[0].rolconfig.some((setting) => setting.includes('private')));
+  } finally { await db.close(); }
+});
+
+test('global preview nets a cross-group three-person cycle to one 25 rupee payment', async () => {
+  const db = await createDatabase();
+  try {
+    const { userToHarsh, harshToJv, jvToUser } = await prepareGlobalCycle(db);
+
+    const { rows } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: '11c60123-d0f1-4908-8c5e-fc204a0a56fe',
+    });
+    const plan = rows[0].result;
+    assert.equal(plan.status, 'PREVIEW');
+    assert.equal(plan.transfers.length, 1);
+    assert.equal(plan.transfers[0].debtor_user_id, firstUser);
+    assert.equal(plan.transfers[0].creditor_user_id, secondUser);
+    assert.equal(plan.transfers[0].amount, '25.00');
+    assert.equal(plan.transfers[0].status, 'PLANNED');
+    assert.equal(plan.transfers[0].allocations.length, 4);
+    assert.deepEqual(plan.transfers[0].allocations.reduce((totals, allocation) => {
+      totals[allocation.kind] = (totals[allocation.kind] ?? 0) + Number(allocation.amount);
+      return totals;
+    }, {}), { CYCLE_CLEAR: 75, PATH_CLEAR: 25 });
+    assert.deepEqual(plan.transfers[0].allocations
+      .filter((allocation) => allocation.kind === 'CYCLE_CLEAR')
+      .map((allocation) => allocation.obligation_id).sort(), [userToHarsh, harshToJv, jvToUser].sort());
+
+    const { rows: untouched } = await db.query(`
+      SELECT obligation_id, remaining_amount::text AS remaining_amount
+      FROM app.obligations WHERE obligation_id = ANY($1::uuid[]) ORDER BY obligation_id`,
+    [[userToHarsh, harshToJv, jvToUser]]);
+    assert.deepEqual(untouched.map((row) => row.remaining_amount).sort(), ['25.00', '25.00', '50.00']);
+    const { rows: reservation } = await db.query(`
+      SELECT sum(private.obligation_reserved_amount(obligation_id))::text AS reserved
+      FROM app.obligations WHERE obligation_id = ANY($1::uuid[])`,
+    [[userToHarsh, harshToJv, jvToUser]]);
+    assert.equal(reservation[0].reserved, '0.00');
+  } finally { await db.close(); }
+});
+
+test('a friend can decline a global preview and its creator can cancel it without changing debts', async () => {
+  const db = await createDatabase();
+  try {
+    const cycle = await prepareGlobalCycle(db);
+    await db.query('INSERT INTO auth.users (id, email) VALUES ($1, $2)', [fourthUser, 'outsider@example.test']);
+    const { rows: preview } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: 'bb55c36e-bd82-43cc-ad19-83bf11730001',
+    });
+    const planId = preview[0].result.plan_id;
+
+    await assert.rejects(rpc(db, fourthUser, 'cancel_global_settlement_plan', { p_plan_id: planId }),
+      /global_settlement_not_found/i);
+
+    const { rows: declined } = await rpc(db, secondUser, 'cancel_global_settlement_plan', { p_plan_id: planId });
+    assert.equal(declined[0].result.status, 'CANCELLED');
+    assert.equal(declined[0].result.transfers[0].status, 'CANCELLED');
+    await assert.rejects(rpc(db, firstUser, 'accept_global_settlement_plan', { p_plan_id: planId }),
+      /global_settlement_plan_unavailable/i);
+
+    const { rows: event } = await db.query(`
+      SELECT event_type, actor_user_id FROM app.global_settlement_events
+      WHERE plan_id = $1 ORDER BY event_id DESC LIMIT 1`, [planId]);
+    assert.deepEqual(event, [{ event_type: 'PLAN_DECLINED', actor_user_id: secondUser }]);
+    const { rows: debts } = await db.query(`
+      SELECT remaining_amount::text AS remaining,
+        private.obligation_reserved_amount(obligation_id)::text AS reserved
+      FROM app.obligations WHERE obligation_id = ANY($1::uuid[]) ORDER BY obligation_id`,
+    [[cycle.userToHarsh, cycle.harshToJv, cycle.jvToUser]]);
+    assert.deepEqual(debts.map((row) => row.remaining).sort(), ['25.00', '25.00', '50.00']);
+    assert.deepEqual(debts.map((row) => row.reserved), ['0.00', '0.00', '0.00']);
+
+    const { rows: secondPreview } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: 'bb55c36e-bd82-43cc-ad19-83bf11730002',
+    });
+    const { rows: cancelled } = await rpc(db, firstUser, 'cancel_global_settlement_plan', {
+      p_plan_id: secondPreview[0].result.plan_id,
+    });
+    assert.equal(cancelled[0].result.status, 'CANCELLED');
+    const { rows: creatorEvent } = await db.query(`
+      SELECT event_type, actor_user_id FROM app.global_settlement_events
+      WHERE plan_id = $1 ORDER BY event_id DESC LIMIT 1`, [secondPreview[0].result.plan_id]);
+    assert.deepEqual(creatorEvent, [{ event_type: 'PLAN_CANCELLED', actor_user_id: firstUser }]);
+  } finally { await db.close(); }
+});
+
+test('repeated global preview requests reuse one live plan', async () => {
+  const db = await createDatabase();
+  try {
+    await prepareGlobalCycle(db);
+    const { rows: first } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: 'bb55c36e-bd82-43cc-ad19-83bf11730003',
+    });
+    const { rows: repeated } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: 'bb55c36e-bd82-43cc-ad19-83bf11730004',
+    });
+    assert.equal(repeated[0].result.plan_id, first[0].result.plan_id);
+    const { rows } = await db.query(
+      "SELECT count(*)::int AS count FROM app.global_settlement_plans WHERE created_by = $1 AND status = 'PREVIEW'",
+      [firstUser],
+    );
+    assert.equal(rows[0].count, 1);
+  } finally { await db.close(); }
+});
+
+test('global preview includes friends by default and excludes friends who opt out', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db, firstUser, 'Default-on global netting');
+    await addMember(db, groupId, secondUser);
+    await makeFriends(db, firstUser, 'two', secondUser);
+    await makeGlobalDebt(db, groupId, firstUser, secondUser, '25.00', '618e978f-c3b1-40e0-8354-51dfd2ec8e71');
+    const { rows: preview } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: '1177f8ee-6a15-4d2c-af56-27dcb4f4b1c6',
+    });
+    assert.equal(preview[0].result.transfers.length, 1);
+    assert.equal(preview[0].result.transfers[0].amount, '25.00');
+
+    await rpc(db, secondUser, 'set_global_netting_preference', { p_enabled: false });
+    await assert.rejects(rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: '2177f8ee-6a15-4d2c-af56-27dcbf4b1c66',
+    }), /global_settlement_no_eligible_debts/i);
+  } finally { await db.close(); }
+});
+
+test('global preview excludes obligations reserved by payments and armed rules', async () => {
+  const db = await createDatabase();
+  try {
+    const cycle = await prepareGlobalCycle(db);
+    const pendingDebt = await makeGlobalDebt(db, cycle.userHarsh, firstUser, secondUser,
+      '7.00', 'fbfd05f6-d8e5-4492-b668-59052a99bc8a');
+    const ruleTriggerDebt = await makeGlobalDebt(db, cycle.userHarsh, firstUser, secondUser,
+      '11.00', '2329f888-3dad-49dc-abf8-2788ae07e9d2');
+    await rpc(db, firstUser, 'report_payment', {
+      p_obligation_id: pendingDebt, p_amount: '1.00',
+      p_request_id: 'c2f6784e-61e9-4b14-a6c4-55e0aefc42b9',
+    });
+    await rpc(db, secondUser, 'create_pay_when_paid_rule', {
+      p_trigger_obligation_id: ruleTriggerDebt, p_target_obligation_id: cycle.harshToJv,
+      p_max_amount: '10.00', p_request_id: '8ca3f625-b07e-42fb-a9bd-55415edca219',
+    });
+
+    const { rows } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: 'c74bf12d-fb27-4434-b62a-7606b3abc176',
+    });
+    const plan = rows[0].result;
+    assert.equal(plan.transfers.length, 2);
+    assert.deepEqual(plan.transfers.map((transfer) => transfer.amount).sort(), ['25.00', '25.00']);
+    const includedIds = plan.transfers.flatMap((transfer) =>
+      transfer.allocations.map((allocation) => allocation.obligation_id));
+    assert.ok(includedIds.includes(cycle.userToHarsh));
+    assert.ok(includedIds.includes(cycle.jvToUser));
+    assert.ok(!includedIds.includes(pendingDebt));
+    assert.ok(!includedIds.includes(ruleTriggerDebt));
+    assert.ok(!includedIds.includes(cycle.harshToJv));
+  } finally { await db.close(); }
+});
+
+test('accepting a global plan reserves its allocations without reducing debt', async () => {
+  const db = await createDatabase();
+  try {
+    const { userToHarsh, harshToJv, jvToUser } = await prepareGlobalCycle(db);
+    const { rows: preview } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: '76197fa2-2026-4ecf-888d-ef6c37bb489d',
+    });
+    const planId = preview[0].result.plan_id;
+    const { rows: accepted } = await rpc(db, firstUser, 'accept_global_settlement_plan', {
+      p_plan_id: planId,
+    });
+    assert.equal(accepted[0].result.status, 'ACCEPTED');
+    assert.equal(accepted[0].result.transfers[0].status, 'ACCEPTED');
+    assert.equal(accepted[0].result.transfers[0].source_friendships_active, true);
+
+    const { rows: debts } = await db.query(`
+      SELECT obligation_id, remaining_amount::text AS remaining_amount,
+        private.obligation_reserved_amount(obligation_id)::text AS reserved
+      FROM app.obligations WHERE obligation_id = ANY($1::uuid[]) ORDER BY obligation_id`,
+    [[userToHarsh, harshToJv, jvToUser]]);
+    assert.deepEqual(debts.map((row) => row.remaining_amount).sort(), ['25.00', '25.00', '50.00']);
+    assert.deepEqual(debts.map((row) => row.reserved).sort(), ['25.00', '25.00', '50.00']);
+    await assert.rejects(rpc(db, firstUser, 'report_payment', {
+      p_obligation_id: userToHarsh, p_amount: '1.00',
+      p_request_id: '937e0c64-e16b-43c4-b6a8-14f29b7d4a16',
+    }), /payment_exceeds_unreserved_debt/i);
+    const { rows: balances } = await rpc(db, firstUser, 'get_dashboard_balances');
+    assert.equal(balances[0].result.find((row) => row.user_id === secondUser).available_to_pay, '0.00');
+    const { rows: retry } = await rpc(db, firstUser, 'accept_global_settlement_plan', { p_plan_id: planId });
+    assert.equal(retry[0].result.status, 'ACCEPTED');
+  } finally { await db.close(); }
+});
+
+test('an accepted global settlement reservation prevents source expense correction', async () => {
+  const db = await createDatabase();
+  try {
+    const cycle = await prepareGlobalCycle(db);
+    const { rows: preview } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: 'a51cb1a8-a6a2-46e2-a667-c174623fe1a4',
+    });
+    await rpc(db, firstUser, 'accept_global_settlement_plan', {
+      p_plan_id: preview[0].result.plan_id,
+    });
+    const { rows: source } = await db.query(
+      'SELECT source_expense_id FROM app.obligations WHERE obligation_id = $1', [cycle.userToHarsh],
+    );
+
+    await assert.rejects(rpc(db, firstUser, 'void_expense', {
+      p_expense_id: source[0].source_expense_id,
+      p_reason: 'Keep accepted global settlement source intact',
+    }), /expense_correction_forbidden/i);
+
+    const { rows: state } = await db.query(`
+      SELECT o.status, o.remaining_amount::text AS remaining,
+        private.obligation_reserved_amount(o.obligation_id)::text AS reserved
+      FROM app.obligations o WHERE o.obligation_id = $1`, [cycle.userToHarsh]);
+    assert.deepEqual(state, [{ status: 'OPEN', remaining: '50.00', reserved: '50.00' }]);
+  } finally { await db.close(); }
+});
+
+test('global settlement confirmation fails safely after a source friendship is blocked', async () => {
+  const db = await createDatabase();
+  try {
+    const cycle = await prepareGlobalCycle(db);
+    const { rows: preview } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: '6bd01b1b-bac3-4e40-8b3f-34f80f6ca80f',
+    });
+    const { rows: accepted } = await rpc(db, firstUser, 'accept_global_settlement_plan', {
+      p_plan_id: preview[0].result.plan_id,
+    });
+    const transferId = accepted[0].result.transfers[0].transfer_id;
+    await rpc(db, firstUser, 'report_global_settlement_transfer', {
+      p_transfer_id: transferId,
+      p_request_id: '31fa9f03-51cd-4790-88ed-ff158f78d0ea',
+    });
+    const { rows: friendship } = await db.query(`
+      SELECT friendship_id FROM app.friendships
+      WHERE user_a = LEAST($1::uuid, $2::uuid) AND user_b = GREATEST($1::uuid, $2::uuid)`,
+    [secondUser, thirdUser]);
+    await rpc(db, thirdUser, 'block_friend', { p_friendship_id: friendship[0].friendship_id });
+    const { rows: blockedPlan } = await rpc(db, firstUser, 'get_global_settlement_plan', {
+      p_plan_id: accepted[0].result.plan_id,
+    });
+    assert.equal(blockedPlan[0].result.transfers[0].source_friendships_active, false);
+
+    await assert.rejects(rpc(db, secondUser, 'confirm_global_settlement_transfer', {
+      p_transfer_id: transferId,
+    }), /active_friendship_required/i);
+
+    const { rows: state } = await db.query(`
+      SELECT t.status AS transfer_status, o.status AS obligation_status,
+        o.remaining_amount::text AS remaining,
+        private.obligation_reserved_amount(o.obligation_id)::text AS reserved
+      FROM app.global_settlement_transfers t
+      JOIN app.global_settlement_allocations a ON a.transfer_id = t.transfer_id
+      JOIN app.obligations o ON o.obligation_id = a.obligation_id
+      WHERE t.transfer_id = $1 AND o.obligation_id = $2
+      GROUP BY t.status, o.status, o.remaining_amount, o.obligation_id`, [transferId, cycle.userToHarsh]);
+    assert.deepEqual(state, [{ transfer_status: 'PENDING', obligation_status: 'OPEN',
+      remaining: '50.00', reserved: '50.00' }]);
+  } finally { await db.close(); }
+});
+
+test('confirmed global payment applies path and cycle allocations exactly once', async () => {
+  const db = await createDatabase();
+  try {
+    const { userToHarsh, harshToJv, jvToUser } = await prepareGlobalCycle(db);
+    const { rows: preview } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: '09a8c659-8374-4d73-9c65-ce53916ef26d',
+    });
+    const planId = preview[0].result.plan_id;
+    const { rows: accepted } = await rpc(db, firstUser, 'accept_global_settlement_plan', { p_plan_id: planId });
+    const transferId = accepted[0].result.transfers[0].transfer_id;
+    const reportRequestId = '8bc3d0d1-d346-49ce-86b8-67979eb50f2b';
+    const { rows: reported } = await rpc(db, firstUser, 'report_global_settlement_transfer', {
+      p_transfer_id: transferId, p_request_id: reportRequestId,
+    });
+    assert.equal(reported[0].result.transfers[0].status, 'PENDING');
+    const { rows: reportRetry } = await rpc(db, firstUser, 'report_global_settlement_transfer', {
+      p_transfer_id: transferId, p_request_id: reportRequestId,
+    });
+    assert.equal(reportRetry[0].result.transfers[0].status, 'PENDING');
+    await assert.rejects(rpc(db, thirdUser, 'confirm_global_settlement_transfer', {
+      p_transfer_id: transferId,
+    }), /creditor_required/i);
+
+    const { rows: beforeConfirmation } = await db.query(`
+      SELECT count(*)::int AS records,
+        (SELECT count(*)::int FROM app.global_settlement_allocations a
+          JOIN app.obligations o ON o.obligation_id = a.obligation_id
+          WHERE a.transfer_id = $1 AND o.remaining_amount = 0) AS cleared
+      FROM app.settlement_records WHERE global_transfer_id = $1`, [transferId]);
+    assert.deepEqual(beforeConfirmation, [{ records: 0, cleared: 0 }]);
+
+    const { rows: confirmed } = await rpc(db, secondUser, 'confirm_global_settlement_transfer', {
+      p_transfer_id: transferId,
+    });
+    assert.equal(confirmed[0].result.status, 'COMPLETED');
+    assert.equal(confirmed[0].result.transfers[0].status, 'CONFIRMED');
+    const { rows: debts } = await db.query(`
+      SELECT remaining_amount::text AS remaining_amount FROM app.obligations
+      WHERE obligation_id = ANY($1::uuid[])`, [[userToHarsh, harshToJv, jvToUser]]);
+    assert.deepEqual(debts.map((row) => row.remaining_amount), ['0.00', '0.00', '0.00']);
+    const { rows: records } = await db.query(`
+      SELECT settlement_type, sum(amount)::text AS amount
+      FROM app.settlement_records WHERE global_transfer_id = $1 GROUP BY settlement_type ORDER BY settlement_type`,
+    [transferId]);
+    assert.deepEqual(records, [
+      { settlement_type: 'GLOBAL_NET', amount: '75.00' },
+      { settlement_type: 'GLOBAL_PAYMENT', amount: '25.00' },
+    ]);
+    const { rows: replay } = await rpc(db, secondUser, 'confirm_global_settlement_transfer', {
+      p_transfer_id: transferId,
+    });
+    assert.equal(replay[0].result.status, 'COMPLETED');
+    const { rows: plans } = await rpc(db, thirdUser, 'list_global_settlement_plans');
+    assert.equal(plans[0].result[0].plan_id, planId);
+    const { rows: history } = await rpc(db, firstUser, 'list_global_settlement_history');
+    assert.equal(history[0].result[0].transfer_id, transferId);
+    assert.equal(history[0].result[0].allocations.length, 4);
+    const { rows: count } = await db.query(
+      'SELECT count(*)::int AS count FROM app.settlement_records WHERE global_transfer_id = $1', [transferId]);
+    assert.equal(count[0].count, 4);
+  } finally { await db.close(); }
+});
+
+test('confirming one global transfer leaves other plan packages reserved and payable', async () => {
+  const db = await createDatabase();
+  try {
+    const groupId = await createGroup(db, firstUser, 'Independent global packages');
+    await addMember(db, groupId, secondUser);
+    await addMember(db, groupId, thirdUser);
+    await makeFriends(db, firstUser, 'two', secondUser);
+    await makeFriends(db, firstUser, 'three', thirdUser);
+    for (const userId of [firstUser, secondUser, thirdUser]) {
+      await rpc(db, userId, 'set_global_netting_preference', { p_enabled: true });
+    }
+    const toSecond = await makeGlobalDebt(db, groupId, firstUser, secondUser,
+      '40.00', '2a21366a-ec0d-4a18-bc5e-1ab029c7cf0c');
+    const toThird = await makeGlobalDebt(db, groupId, firstUser, thirdUser,
+      '60.00', '13e11340-8d2a-4b93-a340-c2743362ff37');
+    const { rows: preview } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: '41f79823-1687-42e9-80aa-c012350ba2d0',
+    });
+    assert.equal(preview[0].result.transfers.length, 2);
+    const { rows: accepted } = await rpc(db, firstUser, 'accept_global_settlement_plan', {
+      p_plan_id: preview[0].result.plan_id,
+    });
+    const transfer = accepted[0].result.transfers.find((item) => item.creditor_user_id === secondUser);
+    const otherTransfer = accepted[0].result.transfers.find((item) => item.creditor_user_id === thirdUser);
+    await rpc(db, firstUser, 'report_global_settlement_transfer', {
+      p_transfer_id: transfer.transfer_id, p_request_id: '586408cc-d91e-4450-8f7d-867131e2d369',
+    });
+    const { rows: confirmed } = await rpc(db, secondUser, 'confirm_global_settlement_transfer', {
+      p_transfer_id: transfer.transfer_id,
+    });
+    assert.equal(confirmed[0].result.status, 'PARTIAL');
+    assert.ok(confirmed[0].result.transfers.every((item) => item.transfer_id !== otherTransfer.transfer_id),
+      'the creditor only receives transfer details that concern them');
+    const { rows: otherStatus } = await db.query(`
+      SELECT status FROM app.global_settlement_transfers WHERE transfer_id = $1`, [otherTransfer.transfer_id]);
+    assert.deepEqual(otherStatus, [{ status: 'ACCEPTED' }]);
+    const { rows: debts } = await db.query(`
+      SELECT obligation_id, remaining_amount::text AS remaining,
+        private.obligation_reserved_amount(obligation_id)::text AS reserved
+      FROM app.obligations WHERE obligation_id = ANY($1::uuid[])`, [[toSecond, toThird]]);
+    const debtById = new Map(debts.map((debt) => [debt.obligation_id, debt]));
+    assert.deepEqual(debtById.get(toSecond), { obligation_id: toSecond, remaining: '0.00', reserved: '0.00' });
+    assert.deepEqual(debtById.get(toThird), { obligation_id: toThird, remaining: '60.00', reserved: '60.00' });
+  } finally { await db.close(); }
+});
+
+test('rejected global transfers release reservations without reducing debt', async () => {
+  const db = await createDatabase();
+  try {
+    const firstCycle = await prepareGlobalCycle(db);
+    const { rows: preview } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: 'bec922aa-711d-4072-ac1a-30049552f2b6',
+    });
+    const { rows: accepted } = await rpc(db, firstUser, 'accept_global_settlement_plan', {
+      p_plan_id: preview[0].result.plan_id,
+    });
+    const transferId = accepted[0].result.transfers[0].transfer_id;
+    const { rows: rejectedReport } = await rpc(db, firstUser, 'report_global_settlement_transfer', {
+      p_transfer_id: transferId, p_request_id: '7a755e13-302f-4e74-bbd6-79195d65e409',
+    });
+    await rpc(db, secondUser, 'reject_global_settlement_transfer', { p_transfer_id: transferId });
+    assert.equal(rejectedReport[0].result.transfers[0].status, 'PENDING');
+    const { rows: rejected } = await db.query(`
+      SELECT sum(private.obligation_reserved_amount(obligation_id))::text AS reserved,
+        bool_and(remaining_amount > 0) AS debt_unchanged
+      FROM app.obligations WHERE obligation_id = ANY($1::uuid[])`,
+    [[firstCycle.userToHarsh, firstCycle.harshToJv, firstCycle.jvToUser]]);
+    assert.deepEqual(rejected[0], { reserved: '0.00', debt_unchanged: true });
+
+  } finally { await db.close(); }
+});
+
+test('a debtor can cancel an accepted global transfer before reporting payment', async () => {
+  const db = await createDatabase();
+  try {
+    const cycle = await prepareGlobalCycle(db);
+    const { rows: preview } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: '01838fd3-d55e-4e56-adba-28f2ae410f18',
+    });
+    const { rows: accepted } = await rpc(db, firstUser, 'accept_global_settlement_plan', {
+      p_plan_id: preview[0].result.plan_id,
+    });
+    const transferId = accepted[0].result.transfers[0].transfer_id;
+    const { rows: cancelled } = await rpc(db, firstUser, 'cancel_global_settlement_transfer', {
+      p_transfer_id: transferId,
+    });
+    assert.equal(cancelled[0].result.status, 'CANCELLED');
+    const { rows: released } = await db.query(`
+      SELECT sum(private.obligation_reserved_amount(obligation_id))::text AS reserved,
+        bool_and(remaining_amount > 0) AS debt_unchanged
+      FROM app.obligations WHERE obligation_id = ANY($1::uuid[])`,
+    [[cycle.userToHarsh, cycle.harshToJv, cycle.jvToUser]]);
+    assert.deepEqual(released[0], { reserved: '0.00', debt_unchanged: true });
+    const { rows: retry } = await rpc(db, firstUser, 'cancel_global_settlement_transfer', {
+      p_transfer_id: transferId,
+    });
+    assert.equal(retry[0].result.status, 'CANCELLED');
+  } finally { await db.close(); }
+});
+
+test('stale global settlement previews fail without reserving changed obligations', async () => {
+  const db = await createDatabase();
+  try {
+    const cycle = await prepareGlobalCycle(db);
+    const { rows: preview } = await rpc(db, firstUser, 'preview_global_settlement', {
+      p_request_id: '502b10b0-3923-4c34-808a-cc04dc591b60',
+    });
+    await db.query(`UPDATE app.obligations SET remaining_amount = 49.00, status = 'PARTIAL'
+      WHERE obligation_id = $1`, [cycle.userToHarsh]);
+    await assert.rejects(rpc(db, firstUser, 'accept_global_settlement_plan', {
+      p_plan_id: preview[0].result.plan_id,
+    }), /stale_global_settlement_preview/i);
+    const { rows } = await db.query(`
+      SELECT status, private.obligation_reserved_amount(obligation_id)::text AS reserved
+      FROM app.obligations WHERE obligation_id = $1`, [cycle.userToHarsh]);
+    assert.deepEqual(rows, [{ status: 'PARTIAL', reserved: '0.00' }]);
   } finally { await db.close(); }
 });

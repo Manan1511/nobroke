@@ -1,8 +1,9 @@
 // Header bell: unread count, recent notifications, mark all as read.
 import { formatDistanceToNow, parseISO } from "date-fns"
+import { useEffect, useState } from "react"
 import { Bell, BellRing, CalendarClock, CircleCheck, UserPlus, Workflow } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import AnimatedList from "@/components/bits/AnimatedList"
 import { useStore } from "@/lib/store"
 import { apiRpc } from "@/lib/supabase"
@@ -10,6 +11,25 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import type { LucideIcon } from "lucide-react"
 import type { AppNotification } from "@/types"
+import "./notifications-menu.css"
+
+const MOBILE_VIEWPORT_QUERY = "(max-width: 640px)"
+
+function useMobileViewport() {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia(MOBILE_VIEWPORT_QUERY).matches,
+  )
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(MOBILE_VIEWPORT_QUERY)
+    const syncViewport = () => setIsMobile(mediaQuery.matches)
+    syncViewport()
+    mediaQuery.addEventListener("change", syncViewport)
+    return () => mediaQuery.removeEventListener("change", syncViewport)
+  }, [])
+
+  return isMobile
+}
 
 const KIND: Record<string, { icon: LucideIcon; tone: string; page: string }> = {
   REMINDER: { icon: BellRing, tone: "bg-warning-soft text-warning", page: "balances" },
@@ -21,6 +41,7 @@ const KIND: Record<string, { icon: LucideIcon; tone: string; page: string }> = {
 
 export function NotificationsMenu({ onNavigate }: { onNavigate: (id: string) => void }) {
   const { notifications, refresh } = useStore()
+  const isMobile = useMobileViewport()
   const unread = notifications.filter((n) => !n.read).length
   const markAll = async () => {
     try { await apiRpc("mark_all_notifications_read"); await refresh() }
@@ -44,7 +65,8 @@ export function NotificationsMenu({ onNavigate }: { onNavigate: (id: string) => 
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 p-0">
+      {isMobile && <PopoverAnchor aria-hidden="true" className="notifications-mobile-anchor" />}
+      <PopoverContent align={isMobile ? "center" : "end"} collisionPadding={12} className="notifications-popover w-80 p-0">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <span className="text-sm font-semibold">Notifications</span>
           <Button variant="link" size="sm" className="h-auto p-0 text-xs" disabled={!unread} onClick={markAll}>Mark all as read</Button>

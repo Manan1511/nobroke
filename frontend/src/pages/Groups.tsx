@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Plus, Users, MoreHorizontal, LogOut, Pencil, ArrowLeft, UserMinus, Copy, Crown, History } from "lucide-react"
+import { Plus, Users, MoreHorizontal, LogOut, Pencil, ArrowLeft, UserMinus, Copy, Crown, History, UserPlus } from "lucide-react"
 import { toast } from "sonner"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter, CardAction } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -11,6 +11,7 @@ import { AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, A
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
+import { Switch } from "@/components/ui/switch"
 import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription, EmptyContent } from "@/components/ui/empty"
 import { PageHeader, AvatarStack, UserAvatar, label } from "@/components/shared"
 import { PersonHover, SimpleSelect } from "@/components/form-bits"
@@ -18,8 +19,11 @@ import { Money, Reveal, Spotlight } from "@/components/motion"
 import { useStore } from "@/lib/store"
 import { groupBalances } from "@/lib/api"
 import { apiRpc } from "@/lib/supabase"
+import { canManageGroupFriendAdds, getAddableGroupFriends } from "@/lib/group-membership.mjs"
 import { cn, inr } from "@/lib/utils"
 import type { Group } from "@/types"
+
+type GroupInvite = { invite_id: string; created_at: string; expires_at: string }
 
 function CreateGroupDialog() {
   const { refresh } = useStore()
@@ -43,7 +47,7 @@ function CreateGroupDialog() {
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Create group</DialogTitle>
-          <DialogDescription>Create the group, then share an invite link with each person.</DialogDescription>
+          <DialogDescription>Create a group, then share a reusable invite link or add friends directly.</DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>
@@ -109,17 +113,27 @@ function TransferOwnershipDialog({ group, open, onOpenChange }: { group: Group; 
 }
 
 function GroupDetail({ group, onBack, onRename }: { group: Group; onBack: () => void; onRename: () => void }) {
-  const { expenses, userName, refresh, me } = useStore()
+  const { expenses, userName, refresh, me, friendships } = useStore()
   const list = expenses.filter((e) => e.group_id === group.group_id).sort((a, b) => b.created_at.localeCompare(a.created_at))
   const [balances, setBalances] = useState<Array<{ user_id: string; net_amount: string }>>([])
   const [balancesLoading, setBalancesLoading] = useState(true)
   const [inviteLink, setInviteLink] = useState("")
   const [inviteId, setInviteId] = useState("")
+  const [activeInvites, setActiveInvites] = useState<GroupInvite[]>([])
+  const [invitesLoading, setInvitesLoading] = useState(false)
+  const [invitesFailed, setInvitesFailed] = useState(false)
+  const [revokingInviteId, setRevokingInviteId] = useState<string | null>(null)
   const [inviting, setInviting] = useState(false)
+  const [friendToAdd, setFriendToAdd] = useState("")
+  const [addingFriend, setAddingFriend] = useState(false)
+  const [savingMemberInvites, setSavingMemberInvites] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
   const [transferring, setTransferring] = useState(false)
   const [membershipHistory, setMembershipHistory] = useState<any[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
+  const isOwner = group.owner_id === me
+  const canAddFriends = canManageGroupFriendAdds(group, me)
+  const addableFriends = getAddableGroupFriends(friendships, group.members)
 
   useEffect(() => {
     let active = true
@@ -140,6 +154,22 @@ function GroupDetail({ group, onBack, onRename }: { group: Group; onBack: () => 
     return () => { active = false }
   }, [group.group_id])
 
+  useEffect(() => {
+    if (!isOwner) {
+      setActiveInvites([])
+      setInvitesFailed(false)
+      return
+    }
+    let active = true
+    setInvitesLoading(true)
+    setInvitesFailed(false)
+    apiRpc<GroupInvite[]>("list_group_invites", { p_group_id: group.group_id })
+      .then((rows) => { if (active) setActiveInvites(rows) })
+      .catch(() => { if (active) setInvitesFailed(true) })
+      .finally(() => { if (active) setInvitesLoading(false) })
+    return () => { active = false }
+  }, [group.group_id, isOwner])
+
   const createInvite = async () => {
     setInviting(true)
     try {
@@ -148,17 +178,48 @@ function GroupDetail({ group, onBack, onRename }: { group: Group; onBack: () => 
       setInviteId(invite.invite_id)
       setInviteLink(link)
       await navigator.clipboard?.writeText(link)
-      toast.success("Invite link copied. It expires in seven days and works once.")
+      toast.success("Invite link copied. Share it with as many people as needed for the next seven days.")
+      void apiRpc<GroupInvite[]>("list_group_invites", { p_group_id: group.group_id })
+        .then(setActiveInvites)
+        .catch(() => setInvitesFailed(true))
     } catch { toast.error("Could not create an invite. Group owners can create invite links.") }
     finally { setInviting(false) }
   }
 
-  const revokeInvite = async () => {
-    if (!inviteId) return
+  const revokeInvite = async (targetInviteId: string) => {
+    setRevokingInviteId(targetInviteId)
     try {
-      await apiRpc("revoke_group_invite", { p_invite_id: inviteId })
-      setInviteId(""); setInviteLink(""); toast.success("Invite revoked")
+      await apiRpc("revoke_group_invite", { p_invite_id: targetInviteId })
+      setActiveInvites((invites) => invites.filter((invite) => invite.invite_id !== targetInviteId))
+      if (targetInviteId === inviteId) { setInviteId(""); setInviteLink("") }
+      toast.success("Invite revoked")
     } catch { toast.error("Could not revoke this invite.") }
+    finally { setRevokingInviteId(null) }
+  }
+
+  const addFriend = async () => {
+    if (!friendToAdd) return
+    setAddingFriend(true)
+    try {
+      const result = await apiRpc<{ added: boolean }>("add_group_friend", {
+        p_group_id: group.group_id, p_friend_id: friendToAdd,
+      })
+      await refresh()
+      toast.success(result.added ? `${userName(friendToAdd)} added to ${group.group_name}` : `${userName(friendToAdd)} is already in this group`)
+      setFriendToAdd("")
+    } catch {
+      toast.error("Could not add this friend. Confirm you are active friends and member invites are enabled if needed.")
+    } finally { setAddingFriend(false) }
+  }
+
+  const setMemberInvitePermission = async (enabled: boolean) => {
+    setSavingMemberInvites(true)
+    try {
+      await apiRpc("set_group_member_invites", { p_group_id: group.group_id, p_enabled: enabled })
+      await refresh()
+      toast.success(enabled ? "Members can now add their friends" : "Only you can add friends to this group")
+    } catch { toast.error("Only the group owner can change this setting.") }
+    finally { setSavingMemberInvites(false) }
   }
 
   const removeMember = async () => {
@@ -176,7 +237,7 @@ function GroupDetail({ group, onBack, onRename }: { group: Group; onBack: () => 
       <Button variant="ghost" className="w-fit" onClick={onBack}><ArrowLeft /> All groups</Button>
       <PageHeader title={group.group_name} description={`${group.members.length} members · balances from posted expenses`}
         action={<div className="flex gap-2"><Button variant="outline" onClick={onRename}><Pencil /> Rename</Button>
-          {group.owner_id === me && group.members.length > 1 && <Button variant="outline" onClick={() => setTransferring(true)}><Crown /> Transfer owner</Button>}</div>} />
+                  {isOwner && group.members.length > 1 && <Button variant="outline" onClick={() => setTransferring(true)}><Crown /> Transfer owner</Button>}</div>} />
       <Tabs defaultValue="balances">
         <TabsList>
           <TabsTrigger value="balances">Balances</TabsTrigger>
@@ -234,15 +295,60 @@ function GroupDetail({ group, onBack, onRename }: { group: Group; onBack: () => 
                   </div>
                 ))}
               </Reveal>
-              <div className="grid gap-2">
-                <FieldLabel>Invite a member</FieldLabel>
+              {isOwner && <section className="flex items-center justify-between gap-4 border-t pt-4">
+                <div className="grid gap-1">
+                  <FieldLabel htmlFor={`member-invites-${group.group_id}`}>Let members add their friends</FieldLabel>
+                  <p className="text-xs text-muted-foreground">Members can add only their active friends. You can always add your own friends.</p>
+                </div>
+                <Switch id={`member-invites-${group.group_id}`} checked={group.members_can_invite_friends}
+                  disabled={savingMemberInvites} onCheckedChange={(enabled) => void setMemberInvitePermission(enabled)}
+                  aria-label="Allow group members to add their friends" />
+              </section>}
+              {!isOwner && <p className="border-t pt-4 text-sm text-muted-foreground">
+                {group.members_can_invite_friends ? "Members can add their active friends." : "Only the owner can add friends to this group."}
+              </p>}
+              {canAddFriends && <section className="grid gap-3 border-t pt-4">
+                <div className="grid gap-1"><FieldLabel htmlFor={`add-friend-${group.group_id}`}>Add a friend</FieldLabel>
+                  <p className="text-xs text-muted-foreground">Choose someone you are already friends with in NoBroke.</p></div>
+                {addableFriends.length > 0 ? <div className="flex flex-col gap-2 sm:flex-row">
+                  <SimpleSelect id={`add-friend-${group.group_id}`} value={friendToAdd} onValueChange={setFriendToAdd}
+                    options={addableFriends.map((friendship) => ({ value: friendship.friend_id, label: userName(friendship.friend_id) }))}
+                    placeholder="Choose a friend" />
+                  <Button className="shrink-0" disabled={!friendToAdd || addingFriend} onClick={() => void addFriend()}>
+                    <UserPlus /> {addingFriend ? "Adding…" : "Add friend"}
+                  </Button>
+                </div> : <p className="text-sm text-muted-foreground">No active friends are available outside this group.</p>}
+              </section>}
+              {isOwner && <div className="grid gap-2 border-t pt-4">
+                <FieldLabel>Share a group invite link</FieldLabel>
                 <Button className="w-fit" variant="outline" disabled={inviting} onClick={() => void createInvite()}>
-                  <Copy /> {inviting ? "Creating link…" : "Create one-use invite link"}
+                  <Copy /> {inviting ? "Creating link…" : "Create reusable invite link"}
                 </Button>
                 {inviteLink && <Input readOnly value={inviteLink} aria-label="Group invite link" onFocus={(event) => event.currentTarget.select()} />}
-                {inviteId && <Button className="w-fit" variant="ghost" size="sm" onClick={() => void revokeInvite()}>Revoke this invite</Button>}
-                <p className="text-xs text-muted-foreground">The link expires after seven days. The invited person must sign in with their team account.</p>
-              </div>
+                <p className="text-xs text-muted-foreground">Anyone with this link can join for seven days. You can revoke it at any time. They must sign in first.</p>
+                <div className="grid gap-2">
+                  <FieldLabel>Active invite links</FieldLabel>
+                  {invitesLoading && <p className="text-sm text-muted-foreground" aria-busy="true">Loading invite links…</p>}
+                  {invitesFailed && <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <span>Could not load active links.</span>
+                    <Button variant="ghost" size="sm" onClick={() => {
+                      setInvitesLoading(true); setInvitesFailed(false)
+                      void apiRpc<GroupInvite[]>("list_group_invites", { p_group_id: group.group_id })
+                        .then(setActiveInvites).catch(() => setInvitesFailed(true))
+                        .finally(() => setInvitesLoading(false))
+                    }}>Retry</Button>
+                  </div>}
+                  {!invitesLoading && !invitesFailed && activeInvites.length === 0 &&
+                    <p className="text-sm text-muted-foreground">No active invite links.</p>}
+                  {activeInvites.map((invite) => <div key={invite.invite_id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2">
+                    <span className="text-sm text-muted-foreground">Expires {new Date(invite.expires_at).toLocaleString()}</span>
+                    <Button variant="ghost" size="sm" disabled={revokingInviteId === invite.invite_id}
+                      onClick={() => void revokeInvite(invite.invite_id)}>
+                      {revokingInviteId === invite.invite_id ? "Revoking…" : "Revoke"}
+                    </Button>
+                  </div>)}
+                </div>
+              </div>}
               <section className="grid gap-3 border-t pt-4">
                 <h3 className="flex items-center gap-2 text-sm font-medium"><History className="size-4" /> Membership history</h3>
                 {historyLoading && <p className="text-sm text-muted-foreground">Loading membership history…</p>}

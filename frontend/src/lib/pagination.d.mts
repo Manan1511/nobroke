@@ -5,7 +5,7 @@ export interface PageCursor {
   timestampArg?: string
 }
 
-export function listAllPages<T extends Record<string, unknown>>(
+export function listAllPages<T extends object>(
   fetchPage: (args: Record<string, unknown>) => Promise<T[]>,
   args: Record<string, unknown>,
   cursor: PageCursor,

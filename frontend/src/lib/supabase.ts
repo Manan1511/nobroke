@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js"
 import type { Database } from "@backend/database.types"
+import { normalizeApiError } from "@/lib/api-error.mjs"
 
 const url = import.meta.env.VITE_SUPABASE_URL?.trim() ?? ""
 const publishableKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim() ?? ""
@@ -30,11 +31,18 @@ const knownApiErrors = new Set([
   "payment_exceeds_unreserved_debt", "payment_exceeds_remaining_debt", "payment_exceeds_task",
   "payment_not_pending", "route_unavailable_or_trust_insufficient", "route_exceeds_unreserved_debt",
   "route_preview_not_found", "route_dependencies_active", "stale_route_preview",
-  "trust_limit_below_used_exposure", "active_friendship_required", "rule_party_relationship_required",
+  "trust_limit_below_used_exposure", "active_friendship_required", "group_member_invites_disabled",
+  "invalid_group_invite_setting", "rule_party_relationship_required",
   "rule_obligations_must_be_open", "forwarding_task_unavailable", "group_member_has_open_obligations",
   "group_member_has_routed_exposure", "reminder_cooldown_active", "friend_not_found",
   "friendship_response_forbidden", "friendship_not_found", "invalid_trust_limit",
   "invalid_payment_amount", "invalid_route_amount", "invalid_rule", "payment_exceeds_unreserved_debt",
+  "global_netting_disabled", "global_settlement_no_eligible_debts",
+  "global_settlement_no_payment_required", "global_settlement_too_large",
+  "global_settlement_creator_required", "global_settlement_plan_unavailable",
+  "global_settlement_not_found", "global_settlement_transfer_not_found",
+  "global_settlement_transfer_unavailable", "stale_global_settlement_preview",
+  "stale_global_settlement_plan", "invalid_global_netting_preference",
 ])
 
 export async function apiRpc<T = unknown>(
@@ -44,9 +52,7 @@ export async function apiRpc<T = unknown>(
   if (!isSupabaseConfigured) throw new Error("supabase_not_configured")
   const { data, error } = await supabase.schema("api").rpc(name as never, args as never)
   if (error) {
-    const code = error.code === "P0001" && knownApiErrors.has(error.message)
-      ? error.message
-      : error.code === "PGRST301" || error.code === "401" ? "authentication_required" : "request_failed"
+    const code = normalizeApiError(error.code ?? "", error.message, knownApiErrors)
     throw new Error(code)
   }
   return data as T

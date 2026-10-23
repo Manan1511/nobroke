@@ -69,11 +69,13 @@ export interface DashboardBalance {
   display_name: string;
   /** Positive values are receivables from this user. */
   net_amount: Money;
+  /** Maximum amount the caller can report paying this user after pending reports. */
+  available_to_pay: Money;
 }
 
 export interface DashboardGroupSpending { group_id: UUID; group_name: string; amount: Money; total_amount: Money; share_percent: number }
 
-export type FriendshipStatus = "PENDING" | "ACTIVE" | "DECLINED" | "BLOCKED";
+export type FriendshipStatus = "PENDING" | "ACTIVE" | "DECLINED" | "BLOCKED" | "REMOVED";
 
 export interface FriendshipView {
   friendship_id: UUID;
@@ -82,10 +84,71 @@ export interface FriendshipView {
   display_name: string;
   status: FriendshipStatus;
   requested_by: UUID;
+  global_netting_enabled: boolean;
   trust_limit_me_to_them: Money;
   trust_limit_them_to_me: Money;
   exposure_me_to_them: Money;
   exposure_them_to_me: Money;
+}
+
+export interface GlobalNettingPreference { enabled: boolean }
+export type GlobalSettlementPlanStatus =
+  | "PREVIEW" | "ACCEPTED" | "PARTIAL" | "COMPLETED" | "CANCELLED" | "EXPIRED";
+export type GlobalSettlementTransferStatus =
+  | "PLANNED" | "ACCEPTED" | "PENDING" | "CONFIRMED" | "REJECTED" | "CANCELLED";
+export type GlobalSettlementAllocationKind = "PATH_CLEAR" | "CYCLE_CLEAR";
+
+export interface GlobalSettlementParticipant {
+  user_id: UUID;
+  username: string;
+  display_name: string;
+}
+
+export interface GlobalSettlementAllocation {
+  allocation_id: UUID;
+  obligation_id: UUID;
+  group_id: UUID;
+  group_name: string;
+  expense_id: UUID;
+  expense_title: string;
+  debtor_user_id: UUID;
+  creditor_user_id: UUID;
+  kind: GlobalSettlementAllocationKind;
+  amount: Money;
+}
+
+export interface GlobalSettlementTransfer {
+  transfer_id: UUID;
+  transfer_order: number;
+  debtor_user_id: UUID;
+  debtor_name: string;
+  creditor_user_id: UUID;
+  creditor_name: string;
+  amount: Money;
+  source_friendships_active?: boolean;
+  status: GlobalSettlementTransferStatus;
+  reported_at: string | null;
+  resolved_at: string | null;
+  allocations: GlobalSettlementAllocation[];
+}
+
+export interface GlobalSettlementPlan {
+  plan_id: UUID;
+  created_by: UUID;
+  can_accept: boolean;
+  status: GlobalSettlementPlanStatus;
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+  completed_at: string | null;
+  participants: GlobalSettlementParticipant[];
+  transfers: GlobalSettlementTransfer[];
+}
+
+export interface GlobalSettlementHistoryItem extends GlobalSettlementTransfer {
+  plan_id: UUID;
+  plan_status: GlobalSettlementPlanStatus;
+  created_at: string;
 }
 
 export type ObligationStatus = "OPEN" | "PARTIAL" | "SETTLED" | "VOIDED";
@@ -197,6 +260,17 @@ export interface GroupSummary {
   created_at: string;
 }
 
+export interface GroupDetail extends GroupSummary {
+  created_by: UUID;
+  members_can_invite_friends: boolean;
+}
+
+export interface GroupInvite {
+  invite_id: UUID;
+  created_at: string;
+  expires_at: string;
+}
+
 export interface GroupMember {
   membership_id: UUID;
   user_id: UUID;
@@ -283,9 +357,24 @@ export type ApiErrorCode =
   | "route_dependencies_active"
   | "trust_limit_below_used_exposure"
   | "active_friendship_required"
+  | "friendship_not_active"
+  | "group_member_invites_disabled"
+  | "invalid_group_invite_setting"
   | "rule_party_relationship_required"
   | "rule_obligations_must_be_open"
   | "forwarding_task_unavailable"
   | "group_member_has_open_obligations"
   | "reminder_cooldown_active"
+  | "global_netting_disabled"
+  | "global_settlement_no_eligible_debts"
+  | "global_settlement_no_payment_required"
+  | "global_settlement_too_large"
+  | "global_settlement_creator_required"
+  | "global_settlement_plan_unavailable"
+  | "global_settlement_not_found"
+  | "global_settlement_transfer_not_found"
+  | "global_settlement_transfer_unavailable"
+  | "stale_global_settlement_preview"
+  | "stale_global_settlement_plan"
+  | "invalid_global_netting_preference"
   | (string & {});

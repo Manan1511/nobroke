@@ -216,6 +216,16 @@
 html, body { background-color: var(--background); color: var(--foreground); font-family: var(--font-sans); }
 body { overflow-x: clip; }
 
+/* Keep page copy from being selected in large accidental drags. Editable text stays selectable. */
+*, *::before, *::after {
+  -webkit-user-select: none;
+  user-select: none;
+}
+input, textarea, [contenteditable]:not([contenteditable="false"]), [role="textbox"] {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* ---------- Spatial UI: frosted glass panels floating over soft ambient light ----------
    Light comes from the landing page's palette (tube orange, mint coin, wallet blue, smiley gold). */
 :root {

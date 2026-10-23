@@ -4,7 +4,7 @@ export type SplitMode = "EQUAL" | "EXACT" | "INCOME_RATIO"
 export type Frequency = "WEEKLY" | "MONTHLY" | "YEARLY"
 export type ObligationStatus = "OPEN" | "PARTIAL" | "SETTLED" | "VOIDED"
 export type RuleStatus = "ARMED" | "CANCELLED" | "EXHAUSTED"
-export type FriendshipStatus = "ACTIVE" | "PENDING" | "BLOCKED" | "DECLINED"
+export type FriendshipStatus = "ACTIVE" | "PENDING" | "BLOCKED" | "DECLINED" | "REMOVED"
 export type SettlementType = "DIRECT" | "MULTI_HOP" | "CASCADE_DOMINO" | "CYCLE_CLEAR"
 export type NotificationType = "REMINDER" | "FRIEND_REQUEST" | "RULE_ARMED" | "SETTLED" | "BILL"
 
@@ -20,9 +20,17 @@ export interface Friendship {
   credit_limit_them_to_me: string
   exposure_me_to_them: string
   exposure_them_to_me: string
+  global_netting_enabled: boolean
 }
 
-export interface Group { group_id: string; group_name: string; created_by: string; owner_id?: string; members: string[] }
+export interface Group {
+  group_id: string
+  group_name: string
+  created_by: string
+  owner_id?: string
+  members: string[]
+  members_can_invite_friends: boolean
+}
 
 export interface Expense {
   expense_id: string
@@ -102,7 +110,7 @@ export interface DashboardSummary {
   current_month_settlement_count: number
   current_month_clear_percent: number
 }
-export interface DashboardBalance { user_id: string; display_name: string; net_amount: string }
+export interface DashboardBalance { user_id: string; display_name: string; net_amount: string; available_to_pay: string }
 export interface GroupSpending { group_id: string; group_name: string; amount: string; total_amount: string; share_percent: number }
 
 export interface ForwardingTask {
@@ -133,6 +141,7 @@ export interface StoreState {
   payments: PaymentReport[]
   notificationPreferences: NotificationPreferences
   dashboard: DashboardSummary
+  globalNettingEnabled: boolean
   dashboardBalances: DashboardBalance[]
   groupSpending: GroupSpending[]
   loading: boolean

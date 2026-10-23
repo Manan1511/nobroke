@@ -71,7 +71,7 @@ export function GroupInviteAcceptance() {
     void apiRpc<{ group_id: string }>("accept_group_invite", { p_token: token }).then(() => {
       if (active) navigate("/app/groups", { replace: true })
     }).catch(() => {
-      if (active) { setStatus("This group invite is invalid, expired, or already used."); setFailed(true) }
+      if (active) { setStatus("This group invite is invalid, expired, or revoked."); setFailed(true) }
     })
     return () => { active = false }
   }, [loading, session?.userId, token, navigate])

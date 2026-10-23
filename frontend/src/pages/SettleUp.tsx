@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react"
-import { ArrowRight, Route, TriangleAlert, CircleCheck, Banknote, Check, X } from "lucide-react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { ArrowRight, Route, TriangleAlert, CircleCheck, Banknote, Check, X, Bell } from "lucide-react"
 import { toast } from "sonner"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -19,7 +19,10 @@ import { executeRoute, newRequestId, previewRoute } from "@/lib/api"
 import { apiRpc } from "@/lib/supabase"
 import { resolveSelectedObligation } from "@/lib/selection"
 import { availableMoney, compareMoney, isPositiveMoney } from "@/lib/money.mjs"
-import type { RoutePreview } from "@backend/api-contract"
+import { findRemindableReceivable, individualPaymentTargets, netPosition, onePaymentTargetPerPeer } from "@/lib/net-position.mjs"
+import { listAllPages } from "@/lib/pagination.mjs"
+import { canAcceptGlobalSettlementPlan, canCancelGlobalSettlementPlan, canDeclineGlobalSettlementPlan, globalTransferActions, hasOpenGlobalSettlementPreview, visibleGlobalSettlementHistory } from "@/lib/global-settlement-display.mjs"
+import type { GlobalSettlementHistoryItem, GlobalSettlementPlan, RoutePreview } from "@backend/api-contract"
 import { inr } from "@/lib/utils"
 
 function RoutePath({ path }: { path: string[] }) {
@@ -32,22 +35,195 @@ function RoutePath({ path }: { path: string[] }) {
   </div>
 }
 
+function globalStatusLabel(status: string, expiresAt?: string) {
+  if (status === "PREVIEW" && expiresAt && Date.parse(expiresAt) <= Date.now()) return "Expired preview"
+  const labels: Record<string, string> = {
+    PREVIEW: "Preview",
+    ACCEPTED: "Ready to pay",
+    PARTIAL: "Partly complete",
+    COMPLETED: "Completed",
+    EXPIRED: "Expired",
+    PLANNED: "Awaiting acceptance",
+    PENDING: "Awaiting receipt",
+    CONFIRMED: "Confirmed",
+    REJECTED: "Rejected",
+    CANCELLED: "Cancelled",
+  }
+  return labels[status] ?? label(status)
+}
+
 export default function SettleUp() {
-  const { obligations, batches, payments, userName, refresh, me } = useStore()
-  const mine = obligations.filter((item) => item.debtor_id === me && item.status !== "SETTLED")
+  const { obligations, dashboardBalances, batches, payments, userName, refresh, me, globalNettingEnabled, friendships } = useStore()
+  const netByPeer = new Map(dashboardBalances.map((balance) => [balance.user_id, netPosition(balance)]))
+  const balanceByPeer = new Map(dashboardBalances.map((balance) => [balance.user_id, balance]))
+  const openDebts = obligations.filter((item) => item.debtor_id === me && item.status !== "SETTLED")
+  const amountAvailableFor = (item: typeof obligations[number]) => {
+    const unreservedDebt = availableMoney(item.remaining_amount, item.reserved_amount)
+    const netAvailable = balanceByPeer.get(item.creditor_id)?.available_to_pay ?? "0.00"
+    return compareMoney(unreservedDebt, netAvailable) === 1 ? netAvailable : unreservedDebt
+  }
+  const individualAmountAvailableFor = (item: typeof obligations[number]) => availableMoney(item.remaining_amount, item.reserved_amount)
+  const mine = openDebts.filter((item) => netByPeer.get(item.creditor_id)?.direction === "YOU_OWE" && isPositiveMoney(amountAvailableFor(item)))
+  const netPaymentTargets = onePaymentTargetPerPeer(mine, amountAvailableFor)
+  const individualTargets = individualPaymentTargets(openDebts, individualAmountAvailableFor)
+  const netPositions = dashboardBalances.map(netPosition).filter((position): position is NonNullable<ReturnType<typeof netPosition>> => position !== null)
   const [selected, setSelected] = useState("")
+  const [paymentMode, setPaymentMode] = useState<"net" | "individual">("net")
   const [amount, setAmount] = useState("")
+  const [reminding, setReminding] = useState("")
   const [route, setRoute] = useState<RoutePreview | null>(null)
   const [loading, setLoading] = useState(false)
   const [busy, setBusy] = useState("")
+  const [globalPlans, setGlobalPlans] = useState<GlobalSettlementPlan[]>([])
+  const [globalHistory, setGlobalHistory] = useState<GlobalSettlementHistoryItem[]>([])
+  const [globalLoading, setGlobalLoading] = useState(true)
+  const [globalLoadError, setGlobalLoadError] = useState<"failed" | "unavailable" | null>(null)
+  const globalReportIds = useRef(new Map<string, string>())
   const requestId = useRef<string | null>(null)
-  const selectedObligationId = resolveSelectedObligation(selected, mine.map((item) => item.obligation_id))
-  const obligation = mine.find((item) => item.obligation_id === selectedObligationId)
-  const available = obligation ? availableMoney(obligation.remaining_amount, obligation.reserved_amount) : "0.00"
+  const previewRequestId = useRef<string | null>(null)
+  const previewInFlight = useRef(false)
+  const hasOpenPreview = hasOpenGlobalSettlementPreview(globalPlans)
+  const paymentTargets = paymentMode === "net" ? netPaymentTargets : individualTargets
+  const availableForTarget = paymentMode === "net" ? amountAvailableFor : individualAmountAvailableFor
+  const selectedObligationId = resolveSelectedObligation(selected, paymentTargets.map((item) => item.obligation_id))
+  const obligation = paymentTargets.find((item) => item.obligation_id === selectedObligationId)
+  const available = obligation ? availableForTarget(obligation) : "0.00"
   const amountWithinAvailable = isPositiveMoney(amount) && compareMoney(amount, available) !== 1
   const pendingPayments = payments.filter((payment) => payment.status === "PENDING" && (payment.debtor_id === me || payment.creditor_id === me))
+  const friendshipStateKey = friendships.map((friendship) => `${friendship.friendship_id}:${friendship.status}`).join("|")
 
-  useEffect(() => { setRoute(null); setAmount(""); requestId.current = null }, [selectedObligationId])
+  const remind = async (debtorId: string) => {
+    const target = findRemindableReceivable(obligations, me, debtorId)
+    if (!target) return
+    setReminding(debtorId)
+    try {
+      await apiRpc("remind_debtor", { p_obligation_id: target.obligation_id })
+      await refresh()
+      toast.success(`Reminder sent to ${userName(debtorId)}`)
+    } catch (error) {
+      toast.error(error instanceof Error && error.message === "reminder_cooldown_active"
+        ? "A reminder was already sent in the last 24 hours."
+        : "Could not send this reminder.")
+    } finally { setReminding("") }
+  }
+
+  const refreshGlobal = useCallback(async () => {
+    if (!me) return
+    setGlobalLoading(true)
+    try {
+      const [plans, history] = await Promise.all([
+        listAllPages<GlobalSettlementPlan>(
+          (args) => apiRpc<GlobalSettlementPlan[]>("list_global_settlement_plans", args),
+          {},
+          { idField: "plan_id", idArg: "p_after_plan_id", timestampField: "created_at", timestampArg: "p_after_created_at" },
+        ),
+        listAllPages<GlobalSettlementHistoryItem>(
+          (args) => apiRpc<GlobalSettlementHistoryItem[]>("list_global_settlement_history", args),
+          {},
+          { idField: "transfer_id", idArg: "p_after_transfer_id", timestampField: "created_at", timestampArg: "p_after_created_at" },
+        ),
+      ])
+      setGlobalPlans((plans ?? []).filter((plan) => plan.status !== "CANCELLED"))
+      setGlobalHistory(visibleGlobalSettlementHistory(history))
+      setGlobalLoadError(null)
+    } catch (error) {
+      setGlobalLoadError(error instanceof Error && error.message === "api_function_unavailable" ? "unavailable" : "failed")
+    } finally { setGlobalLoading(false) }
+  }, [me])
+
+  useEffect(() => { void refreshGlobal() }, [refreshGlobal, friendshipStateKey])
+
+  const upsertGlobalPlan = (plan: GlobalSettlementPlan) => setGlobalPlans((current) => plan.status === "CANCELLED"
+    ? current.filter((item) => item.plan_id !== plan.plan_id)
+    : [plan, ...current.filter((item) => item.plan_id !== plan.plan_id)])
+
+  const previewGlobal = async () => {
+    if (previewInFlight.current || hasOpenGlobalSettlementPreview(globalPlans)) return
+    previewInFlight.current = true
+    setBusy("global-preview")
+    try {
+      previewRequestId.current ??= newRequestId()
+      const plan = await apiRpc<GlobalSettlementPlan>("preview_global_settlement", { p_request_id: previewRequestId.current })
+      previewRequestId.current = null
+      upsertGlobalPlan(plan)
+      toast.success("Global friend plan ready", { description: "Review each transfer and its source debts before accepting." })
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "request_failed"
+      toast.error(code === "global_netting_disabled"
+        ? "Turn on Global friend netting in Friends & trust to preview a plan."
+        : code === "global_settlement_no_eligible_debts"
+          ? "No eligible friend debts found. Friends must be active and have global netting enabled."
+          : code === "global_settlement_no_payment_required"
+          ? "No outside payment is required for this cycle. No debt was changed."
+          : "Could not preview a global friend plan. Check your friends’ global netting settings and try again.")
+    } finally { previewInFlight.current = false; setBusy("") }
+  }
+
+  const acceptGlobalPlan = async (plan: GlobalSettlementPlan) => {
+    setBusy(plan.plan_id)
+    try {
+      const updated = await apiRpc<GlobalSettlementPlan>("accept_global_settlement_plan", { p_plan_id: plan.plan_id })
+      upsertGlobalPlan(updated)
+      await refresh()
+      toast.success("Plan accepted", { description: "Its source debts are reserved. Balances change after each recipient confirms payment." })
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "request_failed"
+      toast.error(code === "stale_global_settlement_preview"
+        ? "Balances or global netting settings changed. Preview a fresh plan before paying."
+        : "Could not accept this plan.")
+    } finally { setBusy("") }
+  }
+
+  const dismissGlobalPlan = async (plan: GlobalSettlementPlan) => {
+    const isCreator = plan.created_by === me
+    setBusy(plan.plan_id)
+    try {
+      const updated = await apiRpc<GlobalSettlementPlan>("cancel_global_settlement_plan", { p_plan_id: plan.plan_id })
+      upsertGlobalPlan(updated)
+      await refreshGlobal()
+      toast.success(isCreator ? "Preview cancelled" : "Plan declined", {
+        description: "No balances changed. You can create a fresh preview later.",
+      })
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "request_failed"
+      toast.error(code === "global_settlement_plan_unavailable"
+        ? "This plan is no longer awaiting a response. Refresh to see its latest status."
+        : "Could not cancel this plan.")
+    } finally { setBusy("") }
+  }
+
+  const runGlobalAction = async (plan: GlobalSettlementPlan, transferId: string,
+    action: "report" | "confirm" | "reject" | "cancel") => {
+    setBusy(transferId)
+    try {
+      let updated: GlobalSettlementPlan
+      if (action === "report") {
+        const requestId = globalReportIds.current.get(transferId) ?? newRequestId()
+        globalReportIds.current.set(transferId, requestId)
+        updated = await apiRpc<GlobalSettlementPlan>("report_global_settlement_transfer", {
+          p_transfer_id: transferId, p_request_id: requestId,
+        })
+      } else {
+        const rpcName = action === "confirm" ? "confirm_global_settlement_transfer"
+          : action === "reject" ? "reject_global_settlement_transfer" : "cancel_global_settlement_transfer"
+        updated = await apiRpc<GlobalSettlementPlan>(rpcName, { p_transfer_id: transferId })
+      }
+      upsertGlobalPlan(updated)
+      await refresh()
+      await refreshGlobal()
+      toast.success(action === "report" ? "Payment reported" : action === "confirm" ? "Receipt confirmed"
+        : action === "reject" ? "Payment rejected" : "Transfer cancelled")
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "request_failed"
+      toast.error(code === "stale_global_settlement_plan" || code === "stale_global_settlement_preview"
+        ? "The plan no longer matches current balances. Preview a new one."
+        : code === "active_friendship_required"
+          ? "A friendship in this plan is no longer active. The debtor can cancel the transfer, or you can reject a pending report. Restore the friendship before starting a new plan."
+          : "Could not update this global settlement transfer.")
+    } finally { setBusy("") }
+  }
+
+  useEffect(() => { setRoute(null); setAmount(""); requestId.current = null }, [paymentMode, selectedObligationId])
   useEffect(() => { requestId.current = null }, [amount])
 
   const runPaymentAction = async (paymentId: string, action: "confirm_payment" | "reject_payment" | "cancel_payment") => {
@@ -62,10 +238,15 @@ export default function SettleUp() {
     requestId.current ??= newRequestId()
     setBusy("report")
     try {
-      await apiRpc("report_payment", { p_obligation_id: obligation.obligation_id, p_amount: amount, p_request_id: requestId.current })
+      await apiRpc(paymentMode === "individual" ? "report_individual_payment" : "report_payment", {
+        p_obligation_id: obligation.obligation_id, p_amount: amount, p_request_id: requestId.current,
+      })
       await refresh(); toast.success("Payment reported", { description: "The creditor must confirm receipt before this debt changes." })
       setAmount(""); requestId.current = null
-    } catch { toast.error("Could not report that amount. Check the unreserved balance and try again.") }
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "request_failed"
+      toast.error(code === "payment_exceeds_net_peer_balance" ? "That exceeds the net amount owed to this person. Refresh balances and try again." : "Could not report that amount. Check the unreserved balance and try again.")
+    }
     finally { setBusy("") }
   }
 
@@ -92,16 +273,138 @@ export default function SettleUp() {
 
   return <>
     <PageHeader title="Settle up" description="Report outside payments for receipt confirmation, or preview a debt route. Routing moves no cash." />
+    <Card>
+      <CardHeader>
+        <CardTitle>Settle across friends</CardTitle>
+        <CardDescription>Preview one outside payment across eligible debts in any group. Friends must have global netting enabled. Debts change only after each recipient confirms receipt.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-background/35 p-4">
+          <p className="max-w-3xl text-sm text-muted-foreground">
+            {globalNettingEnabled
+              ? "Global netting is on for you. Friends who have left it on can be included when connected by eligible debts."
+              : "Global netting is off for you. Turn it on in Friends & trust to create a plan. Friends must have it on too."}
+          </p>
+          <Button disabled={!globalNettingEnabled || globalLoading || globalLoadError === "unavailable" || !!busy || hasOpenPreview} onClick={() => void previewGlobal()}>
+            {busy === "global-preview" ? <Spinner /> : <Route />} {hasOpenPreview ? "Respond to pending plan" : "Preview payment plan"}
+          </Button>
+        </div>
+        {hasOpenPreview && <p className="text-sm text-muted-foreground">Accept, cancel, or decline the pending plan before previewing another one.</p>}
+
+        {globalLoading && globalPlans.length === 0 && <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner /> Loading global plans…</div>}
+        {globalLoadError && <Alert variant={globalLoadError === "unavailable" ? "default" : "destructive"}><TriangleAlert /><AlertTitle>{globalLoadError === "unavailable" ? "Global settlement is not available yet" : "Could not load global plans"}</AlertTitle><AlertDescription className="flex flex-wrap items-center justify-between gap-3">{globalLoadError === "unavailable" ? "This Supabase project is missing the global settlement database update. Your existing balances and payment reports still work. Retry after the update is applied." : "Try again to see your latest plan and transfer status."}<Button size="sm" variant="outline" onClick={() => void refreshGlobal()}>Retry</Button></AlertDescription></Alert>}
+        {!globalLoading && !globalLoadError && globalPlans.length === 0 && <p className="text-sm text-muted-foreground">No global friend plans yet. Preview a plan when active friends with netting enabled share eligible debts.</p>}
+        <div className="grid gap-3">
+          {globalPlans.map((plan) => <section key={plan.plan_id} className="grid min-w-0 gap-4 rounded-2xl border bg-background/35 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="grid min-w-0 gap-1">
+                <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{globalStatusLabel(plan.status, plan.expires_at)}</Badge><span className="text-xs text-muted-foreground">Created {new Date(plan.created_at).toLocaleString()}</span></div>
+                <p className="text-sm text-muted-foreground">Friends involved: {plan.participants.map((participant) => participant.display_name).join(", ")}</p>
+              </div>
+              {(canAcceptGlobalSettlementPlan(plan, me) || canCancelGlobalSettlementPlan(plan, me) || canDeclineGlobalSettlementPlan(plan, me)) &&
+                <div className="flex flex-wrap gap-2">
+                  {canAcceptGlobalSettlementPlan(plan, me) && <Button size="sm" disabled={!!busy} onClick={() => void acceptGlobalPlan(plan)}>
+                    {busy === plan.plan_id && <Spinner />} Accept and reserve debts
+                  </Button>}
+                  {(canCancelGlobalSettlementPlan(plan, me) || canDeclineGlobalSettlementPlan(plan, me)) &&
+                    <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void dismissGlobalPlan(plan)}>
+                      {busy === plan.plan_id && <Spinner />} <X /> {plan.created_by === me ? "Cancel preview" : "Decline plan"}
+                    </Button>}
+                </div>}
+            </div>
+            <div className="grid gap-3">
+              {plan.transfers.map((transfer) => {
+                const actions = globalTransferActions(transfer, me, transfer.source_friendships_active)
+                return <div key={transfer.transfer_id} className="grid min-w-0 gap-3 rounded-xl border p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
+                      <span>{transfer.debtor_name}</span><ArrowRight className="size-4 text-muted-foreground" /><span>{transfer.creditor_name}</span>
+                      <Badge variant="outline">{globalStatusLabel(transfer.status)}</Badge>
+                    </div>
+                    <span className="shrink-0 font-semibold tabular-nums">{inr(transfer.amount)}</span>
+                  </div>
+                  <div className="grid gap-1 border-l-2 pl-3 text-xs text-muted-foreground">
+                    {transfer.allocations.map((allocation) => <div key={allocation.allocation_id} className="flex min-w-0 flex-wrap justify-between gap-x-4 gap-y-1">
+                      <span className="min-w-0">{allocation.kind === "CYCLE_CLEAR" ? "Cycle balance" : "Payment"} · {allocation.group_name} · {allocation.expense_title}</span>
+                      <span className="shrink-0 tabular-nums">{inr(allocation.amount)}</span>
+                    </div>)}
+                  </div>
+                  {transfer.source_friendships_active === false && (transfer.status === "ACCEPTED" || transfer.status === "PENDING") &&
+                    <p className="text-xs text-destructive">A source friendship is no longer active. Reporting or confirming is paused. Cancel or reject this transfer, or restore the friendship.</p>}
+                  {actions.length > 0 && <div className="flex flex-wrap gap-2">
+                    {actions.includes("report") && <Button size="sm" disabled={!!busy} onClick={() => void runGlobalAction(plan, transfer.transfer_id, "report")}><Banknote /> I paid outside NoBroke</Button>}
+                    {actions.includes("confirm") && <Button size="sm" disabled={!!busy} onClick={() => void runGlobalAction(plan, transfer.transfer_id, "confirm")}><Check /> Confirm receipt</Button>}
+                    {actions.includes("reject") && <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void runGlobalAction(plan, transfer.transfer_id, "reject")}><X /> Reject</Button>}
+                    {actions.includes("cancel") && <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void runGlobalAction(plan, transfer.transfer_id, "cancel")}>Cancel transfer</Button>}
+                  </div>}
+                  {transfer.status === "PENDING" && <p className="text-xs text-muted-foreground">Reported outside NoBroke. The linked debts remain reserved until {transfer.creditor_name} confirms or rejects receipt.</p>}
+                </div>
+              })}
+            </div>
+          </section>)}
+        </div>
+        {globalHistory.length > 0 && <details className="rounded-xl border px-4 py-3">
+          <summary className="cursor-pointer text-sm font-medium">Global transfer history ({globalHistory.length})</summary>
+          <div className="mt-3 grid gap-2">
+            {globalHistory.slice(0, 10).map((transfer) => <div key={transfer.transfer_id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span className="min-w-0 text-muted-foreground">{transfer.debtor_name} <ArrowRight className="inline size-3" /> {transfer.creditor_name} · {globalStatusLabel(transfer.status)}</span>
+              <span className="shrink-0 tabular-nums">{inr(transfer.amount)}</span>
+            </div>)}
+          </div>
+        </details>}
+      </CardContent>
+    </Card>
+    <Card>
+      <CardHeader><CardTitle>Net settlement positions</CardTitle><CardDescription>Amounts offset what each person owes you against what you owe them.</CardDescription></CardHeader>
+      <CardContent>
+        {netPositions.length === 0 ? <p className="text-sm text-muted-foreground">No open balances to settle.</p> :
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {netPositions.map((position) => {
+              const availableToPay = balanceByPeer.get(position.user_id)?.available_to_pay ?? "0.00"
+              const reminderTarget = position.direction === "OWES_YOU"
+                ? findRemindableReceivable(obligations, me, position.user_id)
+                : null
+              return <div key={position.user_id} className="flex min-w-0 flex-wrap items-center gap-3 rounded-xl border bg-card/50 p-3">
+                <UserAvatar id={position.user_id} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium">{userName(position.user_id)}</p>
+                  <p className="text-xs text-muted-foreground">{position.direction === "OWES_YOU" ? `${userName(position.user_id)} owes you` : position.direction === "YOU_OWE" ? `You owe ${userName(position.user_id)}` : "You are square"}</p>
+                  {position.direction === "YOU_OWE" && <p className="text-xs text-muted-foreground">Available to report: {inr(availableToPay)}</p>}
+                </div>
+                <div className="ml-auto flex shrink-0 items-center gap-2">
+                  <span className="font-semibold tabular-nums">{inr(position.amount)}</span>
+                  {reminderTarget && <Button size="sm" variant="outline" disabled={reminding === position.user_id} onClick={() => void remind(position.user_id)}>
+                    <Bell /> {reminding === position.user_id ? "Sending…" : "Remind"}
+                  </Button>}
+                </div>
+              </div>
+            })}
+          </div>}
+      </CardContent>
+    </Card>
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
-        <CardHeader><CardTitle>Report an outside payment</CardTitle><CardDescription>Pay the creditor outside NoBroke, then report it here. The balance changes only after they confirm receipt.</CardDescription></CardHeader>
+        <CardHeader><CardTitle>Report an outside payment</CardTitle><CardDescription>Choose a quick net payment or report payment against one specific debt. The recipient must confirm receipt before the ledger and everyone’s balances update across groups.</CardDescription></CardHeader>
         <CardContent className="grid gap-4">
-          {mine.length === 0 ? <p className="text-sm text-muted-foreground">You have no open debts to report.</p> : <>
-            <Field><FieldLabel htmlFor="debt">Debt</FieldLabel>
+          <div role="group" aria-label="Payment reporting method" className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant={paymentMode === "net" ? "default" : "outline"}
+              aria-pressed={paymentMode === "net"} onClick={() => setPaymentMode("net")}>Net settlement</Button>
+            <Button type="button" size="sm" variant={paymentMode === "individual" ? "default" : "outline"}
+              aria-pressed={paymentMode === "individual"} onClick={() => setPaymentMode("individual")}>Individual debt</Button>
+          </div>
+          {paymentTargets.length === 0 ? <p className="text-sm text-muted-foreground">{openDebts.length === 0
+            ? "You have no open debts to report."
+            : paymentMode === "net"
+              ? "No net payment is due to these people. Check the net positions above before paying."
+              : "No unreserved open debts are available to report."}</p> : <>
+            <Field><FieldLabel htmlFor="debt">{paymentMode === "net" ? "Person" : "Debt"}</FieldLabel>
               <SimpleSelect id="debt" value={selectedObligationId} onValueChange={setSelected}
-                options={mine.map((item) => ({ value: item.obligation_id, label: `${userName(item.creditor_id)} · ${inr(item.remaining_amount)} · ${item.source}` }))} />
+                options={paymentTargets.map((item) => ({ value: item.obligation_id, label: paymentMode === "net"
+                  ? `${userName(item.creditor_id)} · up to ${inr(amountAvailableFor(item))} net`
+                  : `${userName(item.creditor_id)} · ${item.source || "Open debt"} · up to ${inr(individualAmountAvailableFor(item))}` }))} />
             </Field>
-            <Field><FieldLabel htmlFor="payment-amount">Amount paid (available {inr(available)})</FieldLabel>
+            {paymentMode === "individual" && <p className="text-sm text-muted-foreground">This amount can be higher than the net balance with this person. It reduces only the selected debt after they confirm receipt, then net balances recalculate across all groups.</p>}
+            <Field><FieldLabel htmlFor="payment-amount">Amount paid ({paymentMode === "net" ? "available net" : "available on this debt"} {inr(available)})</FieldLabel>
               <Input id="payment-amount" value={amount} onChange={(event) => setAmount(event.target.value)} inputMode="decimal" placeholder="0.00" /></Field>
             <div className="flex flex-wrap gap-2">
               <Button disabled={!obligation || !amountWithinAvailable || !!busy} onClick={() => void report()}>{busy === "report" && <Spinner />}<Banknote /> I paid outside NoBroke</Button>

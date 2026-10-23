@@ -6,7 +6,7 @@
 
 ## Goal
 
-Let anyone create a NoBroke account from the existing landing-page auth panel. Keep email confirmation required and make signup work from both the public landing page and a one-use group invite.
+Let anyone create a NoBroke account from the existing landing-page auth panel. Keep email confirmation required and make signup work from both the public landing page and a reusable group invite that remains valid for seven days unless revoked.
 
 ## User flow
 

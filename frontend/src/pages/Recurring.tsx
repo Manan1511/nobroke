@@ -117,7 +117,7 @@ function BillDialog({ template }: { template?: RecurringTemplate }) {
       <DialogTrigger asChild>{template
         ? <Button variant="ghost" size="icon" aria-label={`Edit ${template.title}`}><Pencil /></Button>
         : <Button><Plus /> New recurring bill</Button>}</DialogTrigger>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overscroll-contain overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{template ? "Edit recurring bill" : "New recurring bill"}</DialogTitle>
           <DialogDescription>Set it up once. It's split and added to balances on every billing date.</DialogDescription>

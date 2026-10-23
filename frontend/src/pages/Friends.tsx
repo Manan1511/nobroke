@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { UserPlus, Check, X, Ban, Pencil, History, ArrowRight } from "lucide-react"
+import { UserPlus, UserRoundMinus, Check, X, Ban, Pencil, History, ArrowRight } from "lucide-react"
 import { toast } from "sonner"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardAction, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -22,7 +22,7 @@ import { label } from "@/components/shared"
 import type { Friendship } from "@/types"
 
 function AddFriendDialog() {
-  const { refresh } = useStore()
+  const { refreshFriendships } = useStore()
   const [open, setOpen] = useState(false)
   const [username, setUsername] = useState("")
   const [saving, setSaving] = useState(false)
@@ -30,7 +30,7 @@ function AddFriendDialog() {
     setSaving(true)
     try {
       await apiRpc("request_friendship", { p_username: username.trim().replace(/^@/, "") })
-      await refresh()
+      await refreshFriendships()
       toast.success("Friend request sent")
       setUsername(""); setOpen(false)
     } catch { toast.error("No user found for that username, or a request already exists.") }
@@ -48,7 +48,7 @@ function AddFriendDialog() {
 }
 
 function EditLimitDialog({ friendship }: { friendship: Friendship }) {
-  const { refresh, userName } = useStore()
+  const { refreshFriendships, userName } = useStore()
   const [open, setOpen] = useState(false)
   const [limit, setLimit] = useState(String(friendship.credit_limit_me_to_them))
   const [saving, setSaving] = useState(false)
@@ -58,7 +58,7 @@ function EditLimitDialog({ friendship }: { friendship: Friendship }) {
     setSaving(true)
     try {
       await apiRpc("set_trust_limit", { p_debtor_user_id: friendship.friend_id, p_limit_amount: limit })
-      await refresh(); toast.success("Trust limit saved"); setOpen(false)
+      await refreshFriendships(); toast.success("Trust limit saved"); setOpen(false)
     } catch { toast.error("Could not save the limit. It cannot fall below routed exposure.") }
     finally { setSaving(false) }
   }
@@ -116,17 +116,42 @@ function FriendHistory({ id }: { id: string }) {
 }
 
 export default function Friends() {
-  const { friendships, userName, me, refresh } = useStore()
+  const { friendships, userName, me, globalNettingEnabled, update, refreshFriendships } = useStore()
   const [busy, setBusy] = useState("")
+  const [savingNetting, setSavingNetting] = useState(false)
+  const setNetting = async (enabled: boolean) => {
+    setSavingNetting(true)
+    try {
+      await apiRpc("set_global_netting_preference", { p_enabled: enabled })
+      update("globalNettingEnabled", () => enabled)
+      await refreshFriendships()
+      toast.success(enabled ? "Global friend netting enabled" : "Global friend netting disabled")
+    } catch {
+      toast.error("Could not update your global netting preference.")
+    } finally { setSavingNetting(false) }
+  }
   const act = async (friendship: Friendship, operation: string, success: string, args?: Record<string, unknown>) => {
     setBusy(friendship.friendship_id)
-    try { await apiRpc(operation, args ?? { p_friendship_id: friendship.friendship_id }); await refresh(); toast.success(success) }
+    try { await apiRpc(operation, args ?? { p_friendship_id: friendship.friendship_id }); await refreshFriendships(); toast.success(success) }
     catch { toast.error("Could not update this friendship. Refresh and try again.") }
     finally { setBusy("") }
   }
 
   return <>
-    <PageHeader title="Friends & trust" description="Friend links and directional limits control whether debts can be routed." action={<AddFriendDialog />} />
+    <PageHeader title="Friends & trust" description="Friend links and directional limits control debt routing and global settlement." action={<AddFriendDialog />} />
+    <Card>
+      <CardHeader><CardTitle>Global friend netting</CardTitle>
+        <CardDescription>Combine eligible balances across groups into one payment plan. Global netting is on by default, and anyone can turn it off. Debts change only after the creditor confirms payment.</CardDescription></CardHeader>
+      <CardContent className="flex flex-wrap items-center justify-between gap-4">
+        <div className="max-w-2xl text-sm text-muted-foreground">Turning this off prevents new plans. It does not cancel a plan you have already accepted.</div>
+        <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-full border bg-background/40 px-4 py-2 text-sm font-medium">
+          <input type="checkbox" className="size-4 accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            checked={globalNettingEnabled} disabled={savingNetting}
+            onChange={(event) => void setNetting(event.currentTarget.checked)} />
+          {savingNetting ? "Saving…" : globalNettingEnabled ? "Enabled" : "Off"}
+        </label>
+      </CardContent>
+    </Card>
     {friendships.length === 0 ? <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">Add a friend by exact username to start managing trust.</CardContent></Card> :
       <div className="grid gap-4 md:grid-cols-2">
         {friendships.map((friendship) => {
@@ -146,12 +171,33 @@ export default function Friends() {
               </AlertDialog></CardAction>}
             </CardHeader>
             {friendship.status === "ACTIVE" && <CardContent className="grid gap-4 text-sm">
+              <div className="flex items-center justify-between text-muted-foreground"><span>Global netting</span><span className={friendship.global_netting_enabled ? "text-emerald-400" : ""}>{friendship.global_netting_enabled ? "Enabled" : "Off"}</span></div>
               <div className="grid gap-2"><div className="flex justify-between"><span>Trust you granted</span><span className="tabular-nums">{inr(friendship.exposure_me_to_them)} used of {inr(friendship.credit_limit_me_to_them)}</span></div><Progress value={used} aria-label="Trust limit used" /></div>
               <div className="flex justify-between text-muted-foreground"><span>Trust they granted you</span><span className="tabular-nums">{inr(friendship.credit_limit_them_to_me)}</span></div>
             </CardContent>}
-            <CardFooter className="mt-auto gap-2">
+            <CardFooter className="mt-auto flex-wrap gap-2">
               {friendship.status === "ACTIVE" && <EditLimitDialog friendship={friendship} />}
               <FriendHistory id={friendship.friend_id} />
+              {friendship.status === "ACTIVE" && <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button size="sm" variant="outline" disabled={busy === friendship.friendship_id}>
+                    <UserRoundMinus /> Remove friend
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent><AlertDialogHeader>
+                  <AlertDialogTitle>Remove {userName(friendship.friend_id)} as a friend?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This ends friend-based routing and global settlement with {userName(friendship.friend_id)}. Existing balances and settlement history stay available, and can still be paid through Settle up. Either of you can send a new friend request later.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                  <AlertDialogFooter><AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction className="bg-destructive text-primary-foreground hover:bg-destructive/90" disabled={busy === friendship.friendship_id}
+                      onClick={() => void act(friendship, "remove_friend", `${userName(friendship.friend_id)} removed from friends`)}>
+                      Remove friend
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>}
               {incomingRequest && <>
                 <Button size="sm" disabled={busy === friendship.friendship_id} onClick={() => void act(friendship, "respond_friendship", "Friend request accepted", { p_friendship_id: friendship.friendship_id, p_accept: true })}><Check /> Accept</Button>
                 <Button size="sm" variant="outline" disabled={busy === friendship.friendship_id} onClick={() => void act(friendship, "respond_friendship", "Friend request declined", { p_friendship_id: friendship.friendship_id, p_accept: false })}><X /> Decline</Button>

@@ -1,9 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import type { AppNotification, DashboardSummary, Expense, ForwardingTask, Friendship, Group, Obligation, PayWhenPaidRule, PaymentReport, PrivateFinancials, RecurringTemplate, SettlementBatch, SpendingMonth, StoreState, User } from "@/types"
-import { apiRpc } from "@/lib/supabase"
+import { apiRpc, supabase } from "@/lib/supabase"
 import { useSession } from "@/lib/session"
 import { listAllPages } from "@/lib/pagination.mjs"
 import { routeHistoryLegs } from "@/lib/route-history.mjs"
+import { subscribeToFriendshipChanges } from "@/lib/friendships-realtime.mjs"
+import { subscribeToFinancialChanges } from "@/lib/financial-realtime.mjs"
+import { effectiveGlobalNettingPreference } from "@/lib/global-settlement-display.mjs"
 
 interface Store extends StoreState {
   /** Retained for transient form-only state; never persisted to browser storage. */
@@ -12,6 +15,7 @@ interface Store extends StoreState {
   groupName: (id: string) => string
   me: string
   refresh: () => Promise<void>
+  refreshFriendships: () => Promise<void>
 }
 
 const StoreCtx = createContext<Store | null>(null)
@@ -24,7 +28,7 @@ const emptyState = (): StoreState => ({
     open_payable_count: 0, open_receivable_count: 0, current_month_spend: "0.00",
     current_month_paid: "0.00", current_month_group_total: "0.00", current_month_settled: "0.00",
     current_month_settlement_count: 0, current_month_clear_percent: 100 },
-  dashboardBalances: [], groupSpending: [],
+  dashboardBalances: [], groupSpending: [], globalNettingEnabled: true,
 })
 const money = (value: unknown) => String(value ?? "0.00")
 
@@ -37,10 +41,46 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   sessionName.current = session?.name ?? "You"
   const [state, setState] = useState<StoreState>(() => ({ ...emptyState(), loading: true }))
   const generation = useRef(0)
+  const friendshipRequest = useRef(0)
+  const friendshipRevision = useRef(0)
+
+  const refreshFriendships = useCallback(async () => {
+    if (!session?.userId) return
+    const thisRequest = ++friendshipRequest.current
+
+    try {
+      const friendRows = await listPages<any>("list_my_friends", {}, { idField: "friendship_id" })
+      if (thisRequest !== friendshipRequest.current) return
+      const friendships: Friendship[] = friendRows.map((row) => ({
+        friendship_id: row.friendship_id, friend_id: row.friend_id, status: row.status,
+        requested_by: row.requested_by,
+        credit_limit_me_to_them: money(row.trust_limit_me_to_them),
+        credit_limit_them_to_me: money(row.trust_limit_them_to_me),
+        exposure_me_to_them: money(row.exposure_me_to_them),
+        exposure_them_to_me: money(row.exposure_them_to_me),
+        global_netting_enabled: row.status === "ACTIVE"
+          && effectiveGlobalNettingPreference(row.global_netting_enabled == null
+            ? null : { enabled: Boolean(row.global_netting_enabled) }),
+      }))
+      setState((current) => {
+        const users = new Map(current.users.map((user) => [user.user_id, user]))
+        friendRows.forEach((friend) => users.set(friend.friend_id, {
+          user_id: friend.friend_id,
+          username: friend.username || users.get(friend.friend_id)?.username || friend.friend_id.slice(0, 8),
+          name: friend.display_name || users.get(friend.friend_id)?.name || friend.username || friend.friend_id.slice(0, 8),
+        }))
+        return { ...current, users: [...users.values()], friendships }
+      })
+      friendshipRevision.current += 1
+    } catch {
+      // Keep the current list intact; the next Realtime reconnect retries it.
+    }
+  }, [session?.userId])
 
   const refresh = useCallback(async () => {
     const userId = session?.userId
     const thisGeneration = ++generation.current
+    const friendshipRevisionAtStart = friendshipRevision.current
     if (!userId) { setState(emptyState()); return }
     setState((current) => ({ ...current, loading: true, loadError: null }))
     try {
@@ -55,7 +95,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         return { row, detail, members, expenses }
       }))
       const [friendRows, obligationRows, ruleRows, taskRows, paymentRows, historyRows, routeRows, cycleRows,
-        spendingRows, notificationRows, privateIncome, preferences, dashboard, dashboardBalances, groupSpending] = await Promise.all([
+        spendingRows, notificationRows, privateIncome, preferences, dashboard, dashboardBalances, groupSpending,
+        globalNettingPreference] = await Promise.all([
         listPages<any>("list_my_friends", {}, { idField: "friendship_id" }),
         listPages<any>("list_my_obligations", {}, { idField: "obligation_id" }),
         listPages<any>("list_my_pay_when_paid_rules", {}, { idField: "rule_id" }),
@@ -71,6 +112,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         apiRpc<Record<string, unknown>>("get_dashboard_summary"),
         apiRpc<any[]>("get_dashboard_balances"),
         apiRpc<any[]>("get_dashboard_group_spending"),
+        apiRpc<{ enabled: boolean }>("get_global_netting_preference").catch((error) => {
+          if (error instanceof Error && error.message === "api_function_unavailable") return null
+          throw error
+        }),
       ])
 
       const userById = new Map<string, User>()
@@ -84,7 +129,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         members.forEach((member) => remember(member.user_id, member.username, member.display_name))
         return { group_id: row.group_id, group_name: row.group_name,
           created_by: detail?.created_by ?? "", owner_id: members.find((member) => member.role === "OWNER")?.user_id,
-          members: members.map((member) => member.user_id) }
+          members: members.map((member) => member.user_id),
+          members_can_invite_friends: Boolean(detail?.members_can_invite_friends) }
       })
       friendRows.forEach((friend) => remember(friend.friend_id, friend.username, friend.display_name))
       const expenses: Expense[] = groupDetails.flatMap(({ expenses: rows }) => rows.map((expense) => ({
@@ -111,6 +157,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         credit_limit_them_to_me: money(row.trust_limit_them_to_me),
         exposure_me_to_them: money(row.exposure_me_to_them),
         exposure_them_to_me: money(row.exposure_them_to_me),
+        global_netting_enabled: row.status === "ACTIVE"
+          && effectiveGlobalNettingPreference(row.global_netting_enabled == null
+            ? null : { enabled: Boolean(row.global_netting_enabled) }),
       }))
       const rules: PayWhenPaidRule[] = ruleRows.map((row) => ({ rule_id: row.rule_id,
         trigger_receivable_id: row.trigger_obligation_id, target_payable_id: row.target_obligation_id,
@@ -166,11 +215,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           status: row.status, reported_at: row.reported_at, task_id: row.task_id } as PaymentReport)),
         notificationPreferences: preferences,
         dashboard: dashboard as unknown as DashboardSummary,
-        dashboardBalances: dashboardBalances.map((row) => ({ ...row, net_amount: String(row.net_amount) })),
+        globalNettingEnabled: effectiveGlobalNettingPreference(globalNettingPreference),
+        dashboardBalances: dashboardBalances.map((row) => ({ ...row,
+          net_amount: String(row.net_amount), available_to_pay: String(row.available_to_pay ?? "0.00") })),
         groupSpending: groupSpending.map((row) => ({ ...row, amount: String(row.amount), total_amount: String(row.total_amount) })),
         loading: false, loadError: null,
       }
-      if (thisGeneration === generation.current) setState(next)
+      if (thisGeneration === generation.current) setState((current) => {
+        if (friendshipRevisionAtStart === friendshipRevision.current) return next
+
+        const friendIds = new Set(current.friendships.map((friendship) => friendship.friend_id))
+        const users = new Map(next.users.map((user) => [user.user_id, user]))
+        current.users.filter((user) => friendIds.has(user.user_id)).forEach((user) => users.set(user.user_id, user))
+        return { ...next, friendships: current.friendships, users: [...users.values()] }
+      })
     } catch (error) {
       if (thisGeneration === generation.current) setState((current) => ({
         ...current, loading: false, loadError: error instanceof Error ? error.message : "request_failed",
@@ -179,13 +237,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [session?.userId])
 
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    if (!session?.userId) return
+    return subscribeToFriendshipChanges(supabase, session.userId, () => { void refreshFriendships() })
+  }, [session?.userId, refreshFriendships])
+  useEffect(() => {
+    if (!session?.userId) return
+    return subscribeToFinancialChanges(supabase, session.userId, () => { void refresh() })
+  }, [session?.userId, refresh])
   const update: Store["update"] = (key, fn) => setState((current) => ({ ...current, [key]: fn(current[key]) }))
   const userName = (id: string) => id === session?.userId
     ? session.name
     : state.users.find((user) => user.user_id === id)?.name ?? id.slice(0, 8)
   const groupName = (id: string) => state.groups.find((group) => group.group_id === id)?.group_name ?? "Group unavailable"
-  const value = useMemo(() => ({ ...state, update, userName, groupName, me: session?.userId ?? "", refresh }),
-    [state, session?.userId, update, refresh])
+  const value = useMemo(() => ({ ...state, update, userName, groupName, me: session?.userId ?? "", refresh, refreshFriendships }),
+    [state, session?.userId, update, refresh, refreshFriendships])
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>
 }
 

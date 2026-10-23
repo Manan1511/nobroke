@@ -14,7 +14,7 @@
 
 - Keep email confirmation enabled.
 - Use only the Supabase publishable key in the browser; never add a service-role key.
-- Preserve one-use invite tokens and only allow `/app`, `/app/...`, and `/invite/:token` callback destinations.
+- Preserve reusable seven-day invite tokens and only allow `/app`, `/app/...`, and `/invite/:token` callback destinations.
 - Preserve all existing RLS and financial RPC authorization checks.
 - Permit the callback route with its dynamic `next` query in local and hosted Auth redirect allow-lists.
 - Do not modify the root untracked `PRD.md`.

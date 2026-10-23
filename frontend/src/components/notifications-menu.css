@@ -1,0 +1,21 @@
+.notifications-mobile-anchor {
+  display: none;
+}
+
+@media (max-width: 640px) {
+  .notifications-mobile-anchor {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 4.5rem);
+    left: 50%;
+    display: block;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+  }
+
+  .notifications-popover {
+    width: min(24rem, calc(100vw - 2rem));
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - 7rem);
+    overflow: hidden;
+  }
+}
