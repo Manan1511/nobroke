@@ -13,6 +13,7 @@ import { Breadcrumb, BreadcrumbList, BreadcrumbItem, BreadcrumbLink, BreadcrumbP
 import { Toaster } from "@/components/ui/sonner"
 import { UserAvatar } from "@/components/shared"
 import { NotificationsMenu } from "@/components/notifications-menu"
+import { PreferredNameSetup } from "@/components/preferred-name-setup"
 import { SpatialBackdrop } from "@/components/spatial-backdrop"
 import { NAV, idForSlug, pathFor } from "@/lib/nav"
 import { useStore } from "@/lib/store"
@@ -32,7 +33,7 @@ const NotFound = lazy(() => import("@/pages/NotFound"))
 
 // Fetch the other sections in the background once the first one is on screen, so switching is instant.
 const preloadPages = () => [import("@/pages/Groups"), import("@/pages/Expenses"), import("@/pages/Balances"), import("@/pages/SettleUp"), import("@/pages/PayRules"), import("@/pages/Recurring"), import("@/pages/Friends"), import("@/pages/Profile"), import("@/pages/Dashboard")]
-import { Magnetic, PageReveal } from "@/components/motion"
+import { PageReveal } from "@/components/motion"
 
 // Light / dark mode: a class on <html>. Starts from the page's host theme (data-theme on <html>, set by
 // viewers like the shared-link page), then the toggle choice saved in this browser, then the system setting.
@@ -167,7 +168,7 @@ export default function App() {
               <KbdGroup className="ml-auto"><Kbd>Ctrl</Kbd><Kbd>K</Kbd></KbdGroup>
             </Button>
             <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSearchOpen(true)} aria-label="Search"><Search /></Button>
-            <span className="hidden sm:inline-flex"><Magnetic><Button size="sm" onClick={() => go("expenses")}><Plus /> Expense</Button></Magnetic></span>
+            <span className="hidden sm:inline-flex"><Button size="sm" onClick={() => go("expenses")}><Plus /> Expense</Button></span>
             <NotificationsMenu onNavigate={go} />
             <Button variant="ghost" size="icon" onClick={() => setDark((d) => !d)} aria-label="Toggle dark mode">{dark ? <Sun /> : <Moon />}</Button>
             <DropdownMenu>
@@ -193,6 +194,7 @@ export default function App() {
       </SidebarInset>
       <MobileTabBar page={page} go={go} />
       <CommandMenu open={searchOpen} setOpen={setSearchOpen} go={go} />
+      <PreferredNameSetup />
       <Toaster theme={dark ? "dark" : "light"} />
     </SidebarProvider>
   )

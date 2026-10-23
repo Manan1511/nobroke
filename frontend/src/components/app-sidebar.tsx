@@ -10,7 +10,6 @@ import { UserAvatar } from "@/components/shared"
 import { useStore } from "@/lib/store"
 import { useSession } from "@/lib/session"
 import { cn } from "@/lib/utils"
-import ShinyText from "@/components/bits/ShinyText"
 
 export { NAV }
 
@@ -54,13 +53,13 @@ export function AppSidebar({ page, onNavigate }: { page: string; onNavigate: (id
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            {/* Same round "N" mark as the landing page; goes back to it. */}
-            <SidebarMenuButton size="lg" asChild tooltip="NoBroke home" className="group/logo">
+            {/* Same round "N" mark as the landing page. */}
+            <SidebarMenuButton size="lg" asChild tooltip="NoBroke home" className="group/logo h-16 gap-3 px-3 py-3">
               <Link to="/">
                 <span className="section-icon flex aspect-square size-8 animate-wobble items-center justify-center rounded-full bg-foreground text-[15px] font-semibold tracking-tighter text-background group-hover/logo:animate-wobble">N</span>
-                <span className="grid flex-1 text-left leading-tight">
-                  <span className="font-display text-xl leading-none tracking-tight">NoBroke</span>
-                  <span className="block truncate text-xs leading-tight"><ShinyText text="Make moves. Unbound." speed={3} color="var(--muted-foreground)" shineColor="var(--brand)" /></span>
+                <span className="grid flex-1 gap-1 text-left leading-tight">
+                  <span className="font-display text-xl leading-none tracking-tight text-sidebar-foreground">NoBroke</span>
+                  <span className="block truncate text-xs leading-normal text-sidebar-foreground dark:text-white">Make moves. Unbound.</span>
                 </span>
               </Link>
             </SidebarMenuButton>
@@ -71,7 +70,7 @@ export function AppSidebar({ page, onNavigate }: { page: string; onNavigate: (id
       <SidebarContent ref={content} className="relative">
         {pill && (
           <span aria-hidden="true" className="pointer-events-none absolute z-0 rounded-md transition-all duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)] motion-reduce:transition-none"
-            style={{ ...pill, background: `color-mix(in oklab, ${pill.color} 14%, transparent)`, boxShadow: `inset 3px 0 0 ${pill.color}` }} />
+            style={{ ...pill, background: `color-mix(in oklab, ${pill.color} 14%, transparent)` }} />
         )}
         {GROUPS.map((g) => (
           <SidebarGroup key={g.label}>

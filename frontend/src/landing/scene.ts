@@ -12,7 +12,6 @@ const on = (target, type, fn, opts) => { target.addEventListener(type, fn, opts)
 const hero = root.querySelector('#hero');
 const canvas = root.querySelector('#tube-scene');
 const title = root.querySelector('#wordmark');
-const glitchLayer = root.querySelector('#glitch-layer');
 const icons = [...root.querySelectorAll('.float-icon')];
 const topbar = root.querySelector('#topbar');
 const actions = [...root.querySelectorAll('.pill-button')];
@@ -342,24 +341,6 @@ on(hero, 'pointerleave', () => {
   pointer.targetY = 0;
 });
 
-function createGlitchSlices() {
-  glitchLayer.replaceChildren();
-  const count = 24;
-  const slices = [];
-  for (let index = 0; index < count; index += 1) {
-    const slice = document.createElement('span');
-    const top = (index / count) * 100;
-    const bottom = 100 - ((index + 1) / count) * 100;
-    slice.className = 'glitch-slice';
-    slice.textContent = 'NoBroke';
-    slice.style.clipPath = `inset(${top}% ${Math.random() * 20}% ${bottom}% 0)`;
-    slice.style.setProperty('--slice-nudge', `${Math.round((Math.random() - 0.5) * 30)}px`);
-    glitchLayer.append(slice);
-    slices.push(slice);
-  }
-  return slices;
-}
-const glitchSlices = createGlitchSlices();
 const openEase = reducedMotion ? 'none' : 'back.out(2.8)';
 let introFinished = false;
 let introStarted = false;
@@ -368,31 +349,25 @@ let introTimeline = null;
 function runIntro() {
   if (reducedMotion) {
     gsap.set([title, topbar, actions, taglineWords, icons.map((icon) => icon.querySelector('.icon-art'))], { clearProps: 'all', autoAlpha: 1, y: 0, scale: 1 });
-    gsap.set(glitchSlices, { autoAlpha: 0 });
     introFinished = true;
     root.classList.remove('nb-intro');
     return;
   }
   const iconArt = icons.map((icon) => icon.querySelector('.icon-art'));
-  gsap.set(title, { autoAlpha: 0 });
-  gsap.set(glitchSlices, { autoAlpha: 0, x: (index) => Number.parseFloat(glitchSlices[index].style.getPropertyValue('--slice-nudge')) || 0, y: (index) => index % 2 ? 7 : -7, filter: 'blur(3px)' });
+  gsap.set(title, { autoAlpha: 0, y: 12, scale: 0.96, transformOrigin: '50% 50%' });
   gsap.set(iconArt, { autoAlpha: 0, scale: 0, transformOrigin: '50% 50%' });
   gsap.set(topbar, { autoAlpha: 0, y: -8 });
   gsap.set(actions, { autoAlpha: 0, y: 12 });
   gsap.set(taglineWords, { autoAlpha: 0, y: 10 });
 
   introTimeline = gsap.timeline({ onComplete: () => { introFinished = true; root.classList.remove('nb-intro'); } });
-  introTimeline.to(glitchSlices, {
+  introTimeline.to(title, {
     autoAlpha: 1,
-    x: 0,
     y: 0,
-    filter: 'blur(0px)',
-    duration: 0.105,
-    ease: 'power2.out',
-    stagger: { each: 0.015, from: 'random' },
+    scale: 1,
+    duration: 0.48,
+    ease: 'power3.out',
   }, 0.12);
-  introTimeline.to(title, { autoAlpha: 1, duration: 0.13, ease: 'power1.out' }, 0.57);
-  introTimeline.to(glitchSlices, { autoAlpha: 0, duration: 0.12, stagger: 0.002, ease: 'power1.out' }, 0.58);
   introTimeline.to(iconArt, { autoAlpha: 1, scale: 1, duration: 0.43, ease: openEase, stagger: 0.075 }, 0.62);
   introTimeline.to(topbar, { autoAlpha: 1, y: 0, duration: 0.32, ease: 'power2.out' }, 0.68);
   introTimeline.to(actions, { autoAlpha: 1, y: 0, duration: 0.32, ease: 'power2.out', stagger: 0.11 }, 0.87);
@@ -416,7 +391,6 @@ on(motionPreference, 'change', (event) => {
     stopRendering();
     introTimeline?.kill();
     gsap.set([title, topbar, actions, taglineWords, icons.map((icon) => icon.querySelector('.icon-art'))], { autoAlpha: 1, x: 0, y: 0, scale: 1 });
-    gsap.set(glitchSlices, { autoAlpha: 0 });
     introFinished = true;
     clock.start();
     renderFrame();
@@ -495,6 +469,5 @@ return () => {
   ribNormal.dispose();
   scene.environment?.dispose();
   renderer?.dispose();
-  glitchLayer.replaceChildren();
 };
 }

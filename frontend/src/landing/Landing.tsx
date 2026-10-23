@@ -28,7 +28,7 @@ export default function Landing() {
   }, [searchParams, session])
 
   useEffect(() => {
-    document.title = "NoBroke — Make moves. Unbound."
+    document.title = "NoBroke | Split group expenses and track shared bills"
     const el = root.current
     if (!el) return
     const menuToggle = el.querySelector<HTMLButtonElement>("#menu-toggle")
@@ -97,12 +97,11 @@ export default function Landing() {
   }, [navigate])
 
   return (
-    <div ref={root} className="nb-landing">
+    <div ref={root} className={`nb-landing${session ? " has-session" : ""}`}>
     <main className="page-shell">
       <section className="hero" id="hero" aria-label="NoBroke landing page hero">
         <canvas id="tube-scene" aria-hidden="true"></canvas>
         <header className="topbar" id="topbar">
-          <a className="brand-mark" href="/" aria-label="NoBroke home">N</a>
           <button className="menu-toggle" id="menu-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-menu">
             <span></span><span></span>
           </button>
@@ -123,7 +122,7 @@ export default function Landing() {
         </header>
 
         <div className="floating-icons" aria-hidden="true">
-          <div className="float-icon rocket-icon" data-icon="rocket" data-phase="0.72" data-period="4.6">
+          <div className="float-icon rocket-icon" draggable={false} data-icon="rocket" data-phase="0.72" data-period="4.6">
             <div className="icon-art rocket-art">
               <svg viewBox="0 0 120 140" role="presentation">
                 <defs>
@@ -143,7 +142,7 @@ export default function Landing() {
               </svg>
             </div>
           </div>
-          <div className="float-icon smile-icon" data-icon="smile" data-phase="2.4" data-period="5.4">
+          <div className="float-icon smile-icon" draggable={false} data-icon="smile" data-phase="2.4" data-period="5.4">
             <div className="icon-art smile-art">
               <svg viewBox="0 0 120 120" role="presentation">
                 <defs><radialGradient id="smile-gold" cx="28%" cy="20%"><stop stopColor="#fff48a"/><stop offset=".55" stopColor="#ffcf36"/><stop offset="1" stopColor="#e89611"/></radialGradient></defs>
@@ -156,7 +155,7 @@ export default function Landing() {
               </svg>
             </div>
           </div>
-          <div className="float-icon wallet-icon" data-icon="wallet" data-phase="4.08" data-period="5.9">
+          <div className="float-icon wallet-icon" draggable={false} data-icon="wallet" data-phase="4.08" data-period="5.9">
             <div className="icon-art wallet-art">
               <svg viewBox="0 0 150 120" role="presentation">
                 <defs><linearGradient id="wallet-blue" x1="0" x2="1" y1="0" y2="1"><stop stopColor="#72d7ff"/><stop offset=".5" stopColor="#2997da"/><stop offset="1" stopColor="#1768aa"/></linearGradient><linearGradient id="wallet-flap" x1="0" x2="1"><stop stopColor="#48b6ec"/><stop offset="1" stopColor="#1778c5"/></linearGradient></defs>
@@ -168,7 +167,7 @@ export default function Landing() {
               </svg>
             </div>
           </div>
-          <div className="float-icon n-coin-icon" data-icon="coin" data-phase="5.2" data-period="4.9">
+          <div className="float-icon n-coin-icon" draggable={false} data-icon="coin" data-phase="5.2" data-period="4.9">
             <div className="icon-art coin-art">
               <svg viewBox="0 0 120 120" role="presentation">
                 <defs><radialGradient id="coin-green" cx="28%" cy="20%"><stop stopColor="#d7ffe9"/><stop offset=".48" stopColor="#84e9b6"/><stop offset="1" stopColor="#48c98d"/></radialGradient></defs>
@@ -186,9 +185,9 @@ export default function Landing() {
         <div className="hero-copy">
           <div className="title-wrap" id="title-wrap" aria-label="NoBroke">
             <h1 className="wordmark" id="wordmark">NoBroke</h1>
-            <div className="glitch-layer" id="glitch-layer" aria-hidden="true"></div>
           </div>
           <p className="tagline" id="tagline" aria-label="Make moves. Unbound."><span>Make</span><span>moves.</span><span>Unbound.</span></p>
+          <p className="hero-description">Split group expenses, track shared bills, and see who owes whom.</p>
         </div>
 
         <div className="hero-actions" id="hero-actions">
@@ -201,7 +200,7 @@ export default function Landing() {
             </>
           )}
         </div>
-        {session && <p className="hero-greeting" aria-live="polite"><ShinyText text={`Signed in as ${session.name}`} speed={3} color="rgba(16,16,15,0.62)" shineColor="#ff4a1c" /></p>}
+        {session && <p className="hero-greeting" aria-live="polite"><ShinyText text={`Signed in as ${session.name}`} speed={3} color="var(--foreground)" shineColor="#ff4a1c" /></p>}
 
         <div className="screen-reader-only" aria-live="polite" id="menu-announcement"></div>
       </section>

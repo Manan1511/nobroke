@@ -22,7 +22,6 @@
 .nb-landing button { font: inherit; }
 .nb-landing.nb-intro .wordmark, .nb-landing.nb-intro .topbar, .nb-landing.nb-intro .pill-button, .nb-landing.nb-intro .tagline span, .nb-landing.nb-intro .icon-art { visibility: hidden; opacity: 0; }
 .nb-landing.nb-intro .icon-art { transform: scale(0); }
-.nb-landing.nb-intro .glitch-slice { visibility: hidden; opacity: 0; }
 .nb-landing.webgl-fallback .wordmark, .nb-landing.webgl-fallback .topbar, .nb-landing.webgl-fallback .pill-button, .nb-landing.webgl-fallback .tagline span { visibility: visible !important; opacity: 1 !important; }
 .nb-landing.webgl-fallback .icon-art { visibility: visible !important; opacity: 1 !important; transform: none !important; }
 
@@ -71,10 +70,10 @@
   inset: 26px 30px auto;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   pointer-events: none;
 }
-.nb-landing .brand-mark, .nb-landing .menu-toggle {
+.nb-landing .menu-toggle {
   display: grid;
   width: 54px;
   height: 54px;
@@ -86,14 +85,6 @@
   backdrop-filter: blur(5px);
   -webkit-backdrop-filter: blur(5px);
   pointer-events: auto;
-}
-.nb-landing .brand-mark {
-  font-size: 21px;
-  line-height: 1;
-  font-weight: 600;
-  text-decoration: none;
-  letter-spacing: -0.08em;
-  padding-right: 2px;
 }
 .nb-landing .menu-toggle {
   position: relative;
@@ -173,40 +164,22 @@
   position: relative;
   width: 100%;
   margin-inline: auto;
+  container-type: inline-size;
 }
 .nb-landing .wordmark {
   margin: 0;
   color: #0c0c0b;
   font-family: 'Anton', Impact, sans-serif;
-  font-size: clamp(4.4rem, 25.5vw, 23rem);
+  font-size: clamp(4.4rem, min(25.5vw, 23cqi), 23rem);
   font-weight: 400;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.02em;
   line-height: 0.85;
   white-space: nowrap;
   text-align: center;
   transform-origin: center;
-}
-.nb-landing .glitch-layer {
-  position: absolute;
-  inset: 0;
-  overflow: visible;
-  color: #0c0c0b;
-  font-family: 'Anton', Impact, sans-serif;
-  font-size: inherit;
-  font-weight: 400;
-  letter-spacing: -0.035em;
-  line-height: 0.85;
-  white-space: nowrap;
-  pointer-events: none;
-}
-.nb-landing .glitch-slice {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  font-size: clamp(4.4rem, 25.5vw, 23rem);
-  line-height: 0.85;
-  text-align: center;
-  will-change: transform, opacity, filter;
+  will-change: transform, opacity;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .nb-landing .tagline {
   display: flex;
@@ -219,8 +192,19 @@
   font-weight: 500;
   letter-spacing: -0.055em;
   line-height: 1.04;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .nb-landing .tagline span { display: inline-block; will-change: transform, opacity; }
+.nb-landing .hero-description {
+  max-width: 42ch;
+  margin: 18px auto 0;
+  color: rgba(16, 16, 15, 0.72);
+  font-size: clamp(14px, 1.2vw, 17px);
+  line-height: 1.45;
+  -webkit-user-select: none;
+  user-select: none;
+}
 
 .nb-landing .floating-icons { position: absolute; z-index: 4; inset: 0; pointer-events: none; }
 .nb-landing .float-icon {
@@ -231,16 +215,19 @@
   transform-style: preserve-3d;
   will-change: transform;
   filter: drop-shadow(0 15px 9px rgba(66, 47, 32, 0.15));
+  -webkit-user-drag: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 .nb-landing .float-icon svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .nb-landing .icon-art { width: 100%; height: 100%; transform-style: preserve-3d; will-change: transform, opacity; }
-.nb-landing .rocket-icon { left: 14%; top: 29%; width: clamp(76px, 9vw, 136px); }
+.nb-landing .rocket-icon { left: 18%; top: 10%; width: clamp(56px, 6vw, 90px); }
 .nb-landing .rocket-art { transform: rotate(-17deg); }
-.nb-landing .smile-icon { left: 53%; top: 43%; width: clamp(76px, 8.5vw, 126px); }
+.nb-landing .smile-icon { left: 82%; top: 10%; width: clamp(56px, 6vw, 90px); }
 .nb-landing .smile-art { transform: rotate(10deg); }
-.nb-landing .wallet-icon { left: 83%; top: 50%; width: clamp(86px, 10vw, 146px); }
+.nb-landing .wallet-icon { left: 82%; top: 90%; width: clamp(60px, 6.2vw, 96px); }
 .nb-landing .wallet-art { transform: rotate(9deg) rotateY(-12deg); }
-.nb-landing .n-coin-icon { left: 22%; top: 68%; width: clamp(76px, 9vw, 126px); }
+.nb-landing .n-coin-icon { left: 18%; top: 90%; width: clamp(60px, 6.2vw, 96px); }
 .nb-landing .coin-art { transform: rotate(-10deg); }
 .nb-landing .sparkle {
   position: absolute;
@@ -303,11 +290,18 @@
 }
 .nb-landing :focus-visible { outline: 2px solid #ff4a1c; outline-offset: 3px; }
 
+@media (min-width: 1750px) {
+  .nb-landing .rocket-icon { left: calc(25% - 350px); top: 28%; width: clamp(76px, 9vw, 136px); }
+  .nb-landing .smile-icon { left: calc(75% + 350px); top: 28%; width: clamp(76px, 8.5vw, 126px); }
+  .nb-landing .wallet-icon { left: calc(75% + 350px); top: 76%; width: clamp(86px, 10vw, 146px); }
+  .nb-landing .n-coin-icon { left: calc(25% - 350px); top: 76%; width: clamp(76px, 9vw, 126px); }
+}
+
 @media (max-width: 700px) {
   .nb-landing :root { --frame-radius: 24px; }
   .nb-landing .hero { min-height: 0; }
   .nb-landing .topbar { inset: 18px 18px auto; }
-  .nb-landing .brand-mark, .nb-landing .menu-toggle { width: 48px; height: 48px; }
+  .nb-landing .menu-toggle { width: 48px; height: 48px; }
   .nb-landing .menu-toggle span { left: 15px; width: 17px; }
   .nb-landing .menu-toggle span:first-child { top: 18px; }
   .nb-landing .menu-toggle span:last-child { top: 26px; }
@@ -324,12 +318,12 @@
   .nb-landing .menu-grid { gap: 7px; }
   .nb-landing .menu-grid a { min-height: 42px; font-size: 10px; padding-inline: 7px; }
   .nb-landing .hero-copy { top: 47.2%; width: 96%; }
-  .nb-landing .wordmark, .nb-landing .glitch-slice { font-size: clamp(5.6rem, 24.7vw, 8.8rem); }
-  .nb-landing .wordmark { letter-spacing: -0.045em; }
+  .nb-landing .wordmark { font-size: clamp(3.8rem, 21cqi, 8.8rem); }
+  .nb-landing .wordmark { letter-spacing: -0.015em; }
   .nb-landing .tagline { gap: 0.2em; margin-top: 0.45em; font-size: clamp(28px, 4.5vw, 34px); letter-spacing: -0.06em; }
-  .nb-landing .rocket-icon { left: 15%; top: 26%; width: clamp(68px, 18vw, 94px); }
-  .nb-landing .smile-icon { left: 78%; top: 39%; width: clamp(62px, 17vw, 84px); }
-  .nb-landing .wallet-icon { left: 84%; top: 43%; width: clamp(66px, 18vw, 91px); }
+  .nb-landing .rocket-icon { left: 15%; top: 22%; width: clamp(68px, 18vw, 94px); }
+  .nb-landing .smile-icon { left: 80%; top: 20%; width: clamp(62px, 17vw, 84px); }
+  .nb-landing .wallet-icon { left: 86%; top: 71%; width: clamp(66px, 18vw, 91px); }
   .nb-landing .n-coin-icon { left: 14%; top: 69%; width: clamp(62px, 16vw, 82px); }
   .nb-landing .hero-actions {
     bottom: max(25px, env(safe-area-inset-bottom));
@@ -343,30 +337,31 @@
 
 @media (max-width: 390px) {
   .nb-landing .hero-copy { top: 46.2%; }
-  .nb-landing .wordmark, .nb-landing .glitch-slice { font-size: clamp(5.55rem, 25vw, 6.2rem); }
+  .nb-landing .wordmark { font-size: clamp(3.8rem, 21cqi, 6.2rem); }
   .nb-landing .tagline { font-size: 28px; }
-  .nb-landing .wallet-icon { left: 85%; top: 43%; }
   .nb-landing .n-coin-icon { left: 13%; top: 68%; }
   .nb-landing .pill-button { font-size: 10.5px; }
 }
 
 @media (max-height: 650px) and (min-width: 701px) {
   .nb-landing .hero-copy { top: 48%; }
-  .nb-landing .wordmark, .nb-landing .glitch-slice { font-size: clamp(6rem, 16vw, 12rem); }
+  .nb-landing .wordmark { font-size: clamp(4.2rem, 23cqi, 12rem); }
   .nb-landing .tagline { font-size: clamp(26px, 3.7vw, 42px); }
   .nb-landing .hero-actions { bottom: 24px; }
-  .nb-landing .rocket-icon { top: 25%; }
-  .nb-landing .n-coin-icon { top: 73%; }
+  .nb-landing .rocket-icon { left: 20%; top: 10%; width: clamp(56px, 6vw, 90px); }
+  .nb-landing .smile-icon { left: 80%; top: 10%; width: clamp(56px, 6vw, 90px); }
+  .nb-landing .wallet-icon { left: 80%; top: 90%; width: clamp(60px, 6.2vw, 96px); }
+  .nb-landing .n-coin-icon { left: 20%; top: 90%; width: clamp(60px, 6.2vw, 96px); }
 }
 
 @media (max-height: 650px) and (max-width: 700px) {
   .nb-landing .hero { min-height: 0; }
   .nb-landing .hero-copy { top: 43%; }
-  .nb-landing .wordmark, .nb-landing .glitch-slice { font-size: clamp(4.2rem, 19vw, 6.2rem); }
+  .nb-landing .wordmark { font-size: clamp(3.8rem, 21cqi, 6.2rem); }
   .nb-landing .tagline { font-size: clamp(23px, 4vw, 28px); }
-  .nb-landing .rocket-icon { top: 25%; width: 58px; }
-  .nb-landing .smile-icon { top: 37%; width: 56px; }
-  .nb-landing .wallet-icon { top: 42%; width: 58px; }
+  .nb-landing .rocket-icon { left: 15%; top: 18%; width: 58px; }
+  .nb-landing .smile-icon { left: 74%; top: 20%; width: 56px; }
+  .nb-landing .wallet-icon { left: 91%; top: 20%; width: 58px; }
   .nb-landing .n-coin-icon { top: 71%; width: 56px; }
   .nb-landing .hero-actions { bottom: max(8px, env(safe-area-inset-bottom)); gap: 6px; }
   .nb-landing .pill-button { min-height: 42px; }
@@ -441,3 +436,61 @@
 }
 .nb-landing .hero-greeting { transition: opacity 400ms ease; }
 .nb-landing.nb-intro .hero-greeting { opacity: 0; }
+
+/* Signed-in entry screen: match the reference without changing the public landing state. */
+.nb-landing.has-session .hero-copy { top: 48.7%; width: min(94%, 1700px); }
+.nb-landing.has-session .title-wrap { transform: translateY(8px); }
+.nb-landing.has-session .wordmark { font-size: clamp(4.4rem, min(25.5vw, 23cqi), 29rem); }
+.nb-landing.has-session .tagline { margin-top: 0.42em; font-size: clamp(34px, 4.5vw, 80px); }
+.nb-landing.has-session .hero-description { display: none; }
+.nb-landing.has-session .hero-actions { bottom: 48px; }
+.nb-landing.has-session .topbar {
+  inset: clamp(26px, 1.95vw, 37px) clamp(30px, 1.7vw, 32px) auto clamp(30px, 2.5vw, 47px);
+}
+.nb-landing.has-session .menu-toggle { width: clamp(54px, 3.55vw, 68px); height: clamp(54px, 3.55vw, 68px); }
+.nb-landing.has-session .menu-toggle span { left: calc(50% - 11px); width: 22px; }
+.nb-landing.has-session .menu-toggle span:first-child { top: calc(50% - 6px); }
+.nb-landing.has-session .menu-toggle span:last-child { top: calc(50% + 5px); }
+.nb-landing.has-session .menu-toggle.is-open span:first-child,
+.nb-landing.has-session .menu-toggle.is-open span:last-child { top: calc(50% - 0.75px); }
+.nb-landing.has-session .enter-button {
+  box-sizing: border-box;
+  width: 275px;
+  min-width: 275px;
+  min-height: 64px;
+}
+.nb-landing.has-session .hero-greeting { bottom: 128px; }
+
+@media (max-width: 700px) {
+  .nb-landing.has-session .topbar { inset: 18px 18px auto; }
+  .nb-landing.has-session .menu-toggle { width: 48px; height: 48px; }
+  .nb-landing.has-session .menu-toggle span { left: 15px; width: 17px; }
+  .nb-landing.has-session .menu-toggle span:first-child { top: 18px; }
+  .nb-landing.has-session .menu-toggle span:last-child { top: 26px; }
+  .nb-landing.has-session .menu-toggle.is-open span:first-child,
+  .nb-landing.has-session .menu-toggle.is-open span:last-child { top: 22px; }
+  .nb-landing.has-session .hero-copy { top: 44%; width: 96%; }
+  .nb-landing.has-session .wordmark { font-size: clamp(4rem, 21cqi, 6.3rem); }
+  .nb-landing.has-session .tagline { gap: 0.2em; margin-top: 0.4em; font-size: clamp(28px, 7vw, 34px); }
+  .nb-landing.has-session .hero-actions { bottom: max(25px, env(safe-area-inset-bottom)); }
+  .nb-landing.has-session .enter-button { width: 100%; min-width: 0; min-height: 56px; }
+  .nb-landing.has-session .hero-greeting { bottom: calc(max(25px, env(safe-area-inset-bottom)) + 66px); }
+}
+
+@media (max-height: 650px) and (min-width: 701px) {
+  .nb-landing.has-session .hero-copy { top: 47%; }
+  .nb-landing.has-session .wordmark { font-size: clamp(4.4rem, 23cqi, 18rem); }
+  .nb-landing.has-session .tagline { margin-top: 0.3em; font-size: clamp(26px, 3.8vw, 48px); }
+  .nb-landing.has-session .hero-actions { bottom: 22px; }
+  .nb-landing.has-session .enter-button { min-height: 56px; }
+  .nb-landing.has-session .hero-greeting { bottom: 94px; }
+}
+
+@media (max-height: 650px) and (max-width: 700px) {
+  .nb-landing.has-session .hero-copy { top: 42%; }
+  .nb-landing.has-session .wordmark { font-size: clamp(3.8rem, 21cqi, 5.2rem); }
+  .nb-landing.has-session .tagline { margin-top: 0.3em; font-size: clamp(24px, 5vw, 29px); }
+  .nb-landing.has-session .hero-actions { bottom: max(8px, env(safe-area-inset-bottom)); }
+  .nb-landing.has-session .enter-button { min-height: 46px; }
+  .nb-landing.has-session .hero-greeting { bottom: calc(max(8px, env(safe-area-inset-bottom)) + 54px); }
+}
