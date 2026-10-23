@@ -19,6 +19,7 @@ export interface MyProfile {
   user_id: UUID;
   username: string;
   display_name: string;
+  name_setup_complete: boolean;
 }
 
 export interface NotificationPreferences {

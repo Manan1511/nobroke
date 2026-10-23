@@ -1,10 +1,9 @@
-// Dashboard building blocks (layout follows TailAdmin's dashboard: stat row, wide chart + target ring,
-// breakdown + lists). Everything here only displays numbers the backend would send.
+// Dashboard visualizations and lists use values returned by the backend.
 import { useState } from "react"
 import { format, parseISO, differenceInCalendarDays } from "date-fns"
 import { RefreshCw, Route, Workflow, ArrowLeftRight, TrendingDown, TrendingUp } from "lucide-react"
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, PolarAngleAxis, RadialBar, RadialBarChart, ReferenceLine, XAxis, YAxis } from "recharts"
-import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, ReferenceLine, XAxis, YAxis } from "recharts"
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -16,7 +15,7 @@ import { useStore } from "@/lib/store"
 import { cn, inr } from "@/lib/utils"
 import type { ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
-import { Count, Glare, Money, Reveal, Spotlight } from "@/components/motion"
+import { Glare, Money, Reveal, Spotlight } from "@/components/motion"
 
 const TODAY = new Date()
 const compact = (n: number) => (Math.abs(n) >= 1000 ? `₹${(n / 1000).toFixed(n % 1000 === 0 ? 0 : 1)}k` : `₹${n}`)
@@ -75,7 +74,7 @@ export function StatCard({ title, value, icon: Icon, tone, note, trend, loading 
 const SPEND_CONFIG = { your_share: { label: "Your share", color: "var(--chart-1)" }, you_paid: { label: "You paid", color: "var(--chart-2)" } }
 
 export function SpendingChart() {
-  const { spending } = useStore()
+  const { spending, loading } = useStore()
   const [range, setRange] = useState("6")
   const data = spending.slice(-Number(range)).map((m) => ({ ...m, label: format(parseISO(`${m.month}-01`), "MMM") }))
   // Series are already aggregated by PostgreSQL; render them without browser totals.
@@ -96,7 +95,9 @@ export function SpendingChart() {
         </CardAction>
       </CardHeader>
       <CardContent className="grid gap-4">
-        <ChartContainer config={SPEND_CONFIG} className="aspect-auto h-64 w-full">
+        {loading ? <Skeleton className="h-64 w-full" /> : data.length === 0 ? <Empty className="min-h-64 border-0">
+          <EmptyHeader><EmptyTitle>No spending history yet</EmptyTitle><EmptyDescription>Add a group expense to see monthly spending here.</EmptyDescription></EmptyHeader>
+        </Empty> : <ChartContainer config={SPEND_CONFIG} className="aspect-auto h-64 w-full">
           <AreaChart data={data} margin={{ left: 4, right: 12, top: 8 }}>
             <defs>
               {Object.keys(SPEND_CONFIG).map((k) => (
@@ -116,58 +117,46 @@ export function SpendingChart() {
             <Area dataKey="you_paid" type="monotone" stroke="var(--color-you_paid)" strokeWidth={2} fill="url(#fill-you_paid)" activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--card)" }} />
             <Area dataKey="your_share" type="monotone" stroke="var(--color-your_share)" strokeWidth={2} fill="url(#fill-your_share)" activeDot={{ r: 4, strokeWidth: 2, stroke: "var(--card)" }} />
           </AreaChart>
-        </ChartContainer>
+        </ChartContainer>}
       </CardContent>
     </Card></Spotlight>
   )
 }
 
-/* ---------- Settled this month (TailAdmin "Monthly target" ring) ---------- */
+/* ---------- Confirmed external payments ---------- */
 
-export function SettledRing() {
-  const { dashboard } = useStore()
-  const cleared = Number(dashboard.current_month_settled)
-  const left = Number(dashboard.owe_total)
-  const pct = dashboard.current_month_clear_percent
-  const data = [{ name: "cleared", value: pct, fill: "var(--chart-1)" }]
+export function ConfirmedPayments() {
+  const { dashboard, loading } = useStore()
+  const confirmedAmount = Number(dashboard.current_month_settled)
 
   return (
-    <Spotlight><Card className="h-full">
+    <Card className="h-full">
       <CardHeader>
-        <CardTitle>Settled this month</CardTitle>
-        <CardDescription>How much of what you owed in {format(TODAY, "MMMM")} is cleared.</CardDescription>
+        <CardTitle>Confirmed payments</CardTitle>
+        <CardDescription>Outside payments involving you that a creditor confirmed this month.</CardDescription>
       </CardHeader>
-      <CardContent className="grid place-items-center">
-        <ChartContainer config={{ value: { label: "Cleared" } }} className="relative aspect-[2/1] h-auto w-full max-w-72">
-          <RadialBarChart data={data} startAngle={180} endAngle={0} innerRadius="120%" outerRadius="165%" cy="100%">
-            <PolarAngleAxis type="number" domain={[0, 100]} tick={false} axisLine={false} />
-            <RadialBar dataKey="value" background={{ fill: "var(--muted)" }} cornerRadius={12} />
-          </RadialBarChart>
-        </ChartContainer>
-        <div className="-mt-14 grid place-items-center gap-1 text-center">
-          <span className="text-3xl font-semibold"><Count value={pct} suffix="%" /></span>
-          <Badge variant="outline" className="border-transparent bg-positive-soft text-positive">{inr(cleared)} cleared</Badge>
-        </div>
-        <p className="mt-4 max-w-64 text-center text-sm text-muted-foreground">
-          {left > 0 ? `${inr(left)} is still payable. A debt route can change who you owe, but moves no cash.` : "You have no open payable balance."}
-        </p>
-      </CardContent>
-      <CardFooter className="grid grid-cols-3 divide-x border-t pt-4 text-center">
-        {[["Cleared", inr(cleared)], ["Still to pay", inr(left)], ["Settlements", dashboard.current_month_settlement_count]].map(([k, v]) => (
-          <div key={k} className="grid gap-0.5 px-2">
-            <span className="text-xs text-muted-foreground">{k}</span>
-            <span className="text-sm font-semibold tabular-nums">{v}</span>
+      <CardContent className="flex min-h-52 flex-col justify-center gap-5">
+        {loading ? <div className="grid gap-3"><Skeleton className="h-9 w-36" /><Skeleton className="h-4 w-full" /></div> : <>
+          <div>
+            <p className="text-3xl font-semibold tabular-nums">{inr(confirmedAmount)}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {dashboard.current_month_settlement_count} confirmed payment{dashboard.current_month_settlement_count === 1 ? "" : "s"}
+            </p>
           </div>
-        ))}
-      </CardFooter>
-    </Card></Spotlight>
+          <p className="border-t pt-4 text-sm text-muted-foreground">
+            {dashboard.current_month_settlement_count === 0
+              ? "A payment appears here after the creditor confirms receipt."
+              : "Payments are made outside NoBroke and recorded after receipt is confirmed."}
+          </p>
+        </>}
+      </CardContent>
+    </Card>
   )
 }
-
 /* ---------- Who owes whom (diverging bars) ---------- */
 
 export function BalanceChart() {
-  const { dashboardBalances } = useStore()
+  const { dashboardBalances, loading } = useStore()
   const data = dashboardBalances.map((item) => ({ name: item.display_name.split(" ")[0], full: item.display_name, value: Number(item.net_amount) }))
   const max = Math.max(...data.map((d) => Math.abs(d.value)), 1)
 
@@ -191,7 +180,7 @@ export function BalanceChart() {
         </CardAction>
       </CardHeader>
       <CardContent>
-        {data.length === 0 ? (
+        {loading ? <Skeleton className="h-64 w-full" /> : data.length === 0 ? (
           <Empty className="border-0"><EmptyHeader><EmptyTitle>You're all square</EmptyTitle><EmptyDescription>No open balances with anyone.</EmptyDescription></EmptyHeader></Empty>
         ) : (
           <ChartContainer config={{ value: { label: "Balance" } }} className="aspect-auto w-full" style={{ height: data.length * 44 + 16 }}>
@@ -219,7 +208,7 @@ export function BalanceChart() {
 const GROUP_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)"]
 
 export function GroupDonut() {
-  const { groupSpending } = useStore()
+  const { groupSpending, loading } = useStore()
   // Colour follows the group (its position in your groups list), never its rank.
   const colorOf: Record<string, string> = Object.fromEntries(groupSpending.map((group, i) => [group.group_id, GROUP_COLORS[i % GROUP_COLORS.length]]))
   const data = groupSpending.map((group) => ({ id: group.group_id, name: group.group_name, value: Number(group.amount), percent: group.share_percent })).filter((group) => group.value > 0)
@@ -232,7 +221,7 @@ export function GroupDonut() {
         <CardDescription>Spending in your groups this month.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-4 sm:grid-cols-[minmax(0,180px)_1fr] sm:items-center">
-        {total === 0 ? <p className="text-sm text-muted-foreground">Nothing spent yet this month.</p> : <>
+        {loading ? <Skeleton className="h-56 w-full sm:col-span-2" /> : total === 0 ? <p className="text-sm text-muted-foreground">Nothing spent yet this month.</p> : <>
           <div className="relative mx-auto aspect-square w-full max-w-44">
             <ChartContainer config={{ value: { label: "Spent" } }} className="aspect-square w-full">
               <PieChart>
@@ -271,7 +260,7 @@ export function GroupDonut() {
 /* ---------- Upcoming bills ---------- */
 
 export function UpcomingBills({ onNavigate }: { onNavigate: (id: string) => void }) {
-  const { recurring, groupName } = useStore()
+  const { recurring, groupName, loading } = useStore()
   const list = recurring.filter((t) => t.is_active && t.next_run_date).sort((a, b) => a.next_run_date.localeCompare(b.next_run_date)).slice(0, 4)
   return (
     <Card>
@@ -281,29 +270,29 @@ export function UpcomingBills({ onNavigate }: { onNavigate: (id: string) => void
         <CardAction><Button variant="ghost" size="sm" onClick={() => onNavigate("recurring")}>See all</Button></CardAction>
       </CardHeader>
       <CardContent>
-        <Reveal className="grid gap-3" stagger={0.08} delay={0.2}>
-        {list.length === 0 && <p className="text-sm text-muted-foreground">No active recurring bills.</p>}
-        {list.map((t) => {
-          const date = parseISO(t.next_run_date)
-          const days = differenceInCalendarDays(date, TODAY)
-          return (
-            <div key={t.template_id} className="flex items-center gap-3">
-              <div className="grid w-12 shrink-0 place-items-center rounded-lg border bg-muted/40 py-1.5 leading-none">
-                <span className="text-[10px] font-medium uppercase text-muted-foreground">{format(date, "MMM")}</span>
-                <span className="text-lg font-semibold">{format(date, "d")}</span>
+        {loading ? <div className="grid gap-3">{[1, 2, 3].map((item) => <Skeleton key={item} className="h-12" />)}</div> : <Reveal className="grid gap-3" stagger={0.08} delay={0.2}>
+          {list.length === 0 && <p className="text-sm text-muted-foreground">No active recurring bills.</p>}
+          {list.map((t) => {
+            const date = parseISO(t.next_run_date)
+            const days = differenceInCalendarDays(date, TODAY)
+            return (
+              <div key={t.template_id} className="flex items-center gap-3">
+                <div className="grid w-12 shrink-0 place-items-center rounded-lg border bg-muted/40 py-1.5 leading-none">
+                  <span className="text-[10px] font-medium uppercase text-muted-foreground">{format(date, "MMM")}</span>
+                  <span className="text-lg font-semibold">{format(date, "d")}</span>
+                </div>
+                <div className="grid min-w-0 flex-1 gap-0.5">
+                  <span className="truncate text-sm font-medium">{t.title}</span>
+                  <span className="truncate text-xs text-muted-foreground">{groupName(t.group_id)} · {label(t.split_mode)}</span>
+                </div>
+                <div className="grid justify-items-end gap-0.5">
+                  <span className="text-sm font-medium tabular-nums">{inr(t.total_amount)}</span>
+                  <span className={cn("text-xs", days <= 7 ? "text-warning" : "text-muted-foreground")}>{days <= 0 ? "Today" : days === 1 ? "Tomorrow" : `In ${days} days`}</span>
+                </div>
               </div>
-              <div className="grid min-w-0 flex-1 gap-0.5">
-                <span className="truncate text-sm font-medium">{t.title}</span>
-                <span className="truncate text-xs text-muted-foreground">{groupName(t.group_id)} · {label(t.split_mode)}</span>
-              </div>
-              <div className="grid justify-items-end gap-0.5">
-                <span className="text-sm font-medium tabular-nums">{inr(t.total_amount)}</span>
-                <span className={cn("text-xs", days <= 7 ? "text-warning" : "text-muted-foreground")}>{days <= 0 ? "Today" : days === 1 ? "Tomorrow" : `In ${days} days`}</span>
-              </div>
-            </div>
-          )
-        })}
-        </Reveal>
+            )
+          })}
+        </Reveal>}
       </CardContent>
     </Card>
   )
@@ -319,16 +308,18 @@ const ACTIVITY: Record<string, { icon: LucideIcon; tone: string }> = {
 }
 
 export function RecentActivity({ onNavigate }: { onNavigate: (id: string) => void }) {
-  const { batches, userName } = useStore()
+  const { batches, userName, loading } = useStore()
   return (
     <Card>
       <CardHeader>
         <CardTitle>Recent activity</CardTitle>
-        <CardDescription>Settlements that went through.</CardDescription>
+        <CardDescription>Recent changes to your balances.</CardDescription>
         <CardAction><Button variant="ghost" size="sm" onClick={() => onNavigate("settle")}>See all</Button></CardAction>
       </CardHeader>
       <CardContent>
-        <ol className="relative grid gap-5 before:absolute before:top-2 before:bottom-2 before:left-4 before:w-px before:bg-border">
+        {loading ? <div className="grid gap-4 py-2">{[1, 2, 3].map((item) => <Skeleton key={item} className="h-12" />)}</div> : batches.length === 0 ? <Empty className="border-0 py-6">
+          <EmptyHeader><EmptyTitle>No activity yet</EmptyTitle><EmptyDescription>Confirmed payments, debt routes, and cycle netting will appear here.</EmptyDescription></EmptyHeader>
+        </Empty> : <ol className="relative grid gap-5 before:absolute before:top-2 before:bottom-2 before:left-4 before:w-px before:bg-border">
           {batches.slice(0, 4).map((b) => {
             const a = ACTIVITY[b.settlement_type] ?? ACTIVITY.DIRECT
             return (
@@ -345,7 +336,7 @@ export function RecentActivity({ onNavigate }: { onNavigate: (id: string) => voi
               </li>
             )
           })}
-        </ol>
+        </ol>}
       </CardContent>
     </Card>
   )

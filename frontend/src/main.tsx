@@ -21,7 +21,7 @@ createRoot(document.getElementById("root")!).render(
     <StoreProvider>
       <TooltipProvider>
         <Router>
-          <ClickSpark sparkColor={["#ff4a1c", "#ffcf36", "#48c98d", "#2997da"]} sparkSize={9} sparkRadius={20} sparkCount={8} duration={450}>
+          <ClickSpark sparkColor="#ff4a1c" sparkSize={9} sparkRadius={20} sparkCount={8} duration={450}>
           <Suspense fallback={<Loading />}>
           <Routes>
             <Route path="/" element={<Landing />} />

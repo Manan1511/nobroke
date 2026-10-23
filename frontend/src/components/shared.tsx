@@ -52,7 +52,7 @@ const LABEL: Record<string, string> = {
   OPEN: "Open", PARTIAL: "Partly cleared", SETTLED: "Cleared", VOIDED: "Voided", ARMED: "Waiting", EXHAUSTED: "Limit reached", TRIGGERED: "Task created", CANCELLED: "Cancelled",
   ACTIVE: "Friends", PENDING: "Request pending", BLOCKED: "Blocked", DECLINED: "Declined",
   EQUAL: "Equal", EXACT: "Exact amounts", INCOME_RATIO: "By income",
-  DIRECT: "Outside payment", MULTI_HOP: "Debt route", CASCADE_DOMINO: "Forwarding task", CYCLE_CLEAR: "Cycle net · no cash",
+  DIRECT: "Payment confirmed", MULTI_HOP: "Debt route", CASCADE_DOMINO: "Forwarding task", CYCLE_CLEAR: "Cycle netting (no payment)",
   WEEKLY: "Weekly", MONTHLY: "Monthly", YEARLY: "Yearly",
 }
 export const label = (k: string) => LABEL[k] ?? k

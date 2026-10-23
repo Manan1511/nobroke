@@ -55,7 +55,7 @@ Exact salary input is converted immediately to a private band and discarded. No 
 
 | RPC | Arguments | Result |
 | --- | --- | --- |
-| `get_my_profile` | none | { user_id, username, display_name } |
+| `get_my_profile` | none | { user_id, username, display_name, name_setup_complete } |
 | `update_my_profile` | `p_username`, `p_display_name` | updated own profile |
 | `get_dashboard_summary` | none | active group count and current-month decimal-string aggregates |
 | `get_dashboard_balances` | none | caller's peer balances from PostgreSQL |

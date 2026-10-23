@@ -33,6 +33,8 @@ const listPages = <T extends Record<string, any>>(name: string, args: Record<str
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const session = useSession()
+  const sessionName = useRef(session?.name ?? "You")
+  sessionName.current = session?.name ?? "You"
   const [state, setState] = useState<StoreState>(() => ({ ...emptyState(), loading: true }))
   const generation = useRef(0)
 
@@ -77,7 +79,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         const existing = userById.get(id)
         userById.set(id, { user_id: id, username: username || existing?.username || id.slice(0, 8), name: name || existing?.name || username || id.slice(0, 8) })
       }
-      remember(userId, session.name, session.name)
+      remember(userId, sessionName.current, sessionName.current)
       const groups: Group[] = groupDetails.map(({ row, detail, members }) => {
         members.forEach((member) => remember(member.user_id, member.username, member.display_name))
         return { group_id: row.group_id, group_name: row.group_name,
@@ -174,12 +176,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         ...current, loading: false, loadError: error instanceof Error ? error.message : "request_failed",
       }))
     }
-  }, [session?.userId, session?.name])
+  }, [session?.userId])
 
   useEffect(() => { void refresh() }, [refresh])
   const update: Store["update"] = (key, fn) => setState((current) => ({ ...current, [key]: fn(current[key]) }))
-  const userName = (id: string) => state.users.find((user) => user.user_id === id)?.name ?? (id === session?.userId ? session.name : id.slice(0, 8))
-  const groupName = (id: string) => state.groups.find((group) => group.group_id === id)?.group_name ?? "—"
+  const userName = (id: string) => id === session?.userId
+    ? session.name
+    : state.users.find((user) => user.user_id === id)?.name ?? id.slice(0, 8)
+  const groupName = (id: string) => state.groups.find((group) => group.group_id === id)?.group_name ?? "Group unavailable"
   const value = useMemo(() => ({ ...state, update, userName, groupName, me: session?.userId ?? "", refresh }),
     [state, session?.userId, update, refresh])
   return <StoreCtx.Provider value={value}>{children}</StoreCtx.Provider>

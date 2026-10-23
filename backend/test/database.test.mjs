@@ -127,6 +127,48 @@ test('signups create minimal private profiles without accepting auth metadata as
   }
 });
 
+test('restricted RPCs resolve the caller without auth schema access', async () => {
+  const db = await createDatabase();
+  try {
+    await db.exec('REVOKE USAGE ON SCHEMA auth FROM nobroke_executor');
+    const forwardMigrations = (await readdir(migrationDirectory))
+      .filter((file) => file.includes('auth_uid_compatibility') && file.endsWith('.sql'))
+      .sort();
+    for (const migration of forwardMigrations) {
+      await db.exec(await readFile(resolve(migrationDirectory, migration), 'utf8'));
+    }
+
+    const { rows: accessRows } = await db.query(
+      "SELECT has_schema_privilege('nobroke_executor', 'auth', 'USAGE') AS can_use_auth",
+    );
+    assert.equal(accessRows[0].can_use_auth, false);
+
+    const { rows } = await rpc(db, firstUser, 'get_private_income_status');
+    assert.deepEqual(rows[0].result, { configured: false });
+  } finally {
+    await db.close();
+  }
+});
+
+test('new accounts must confirm their preferred display name before the app uses it', async () => {
+  const db = await createDatabase();
+  try {
+    const { rows: firstRead } = await rpc(db, firstUser, 'get_my_profile');
+    assert.equal(firstRead[0].result.name_setup_complete, false);
+
+    await rpc(db, firstUser, 'update_my_profile', {
+      p_username: 'one',
+      p_display_name: 'Ananya',
+    });
+
+    const { rows: secondRead } = await rpc(db, firstUser, 'get_my_profile');
+    assert.equal(secondRead[0].result.name_setup_complete, true);
+    assert.equal(secondRead[0].result.display_name, 'Ananya');
+  } finally {
+    await db.close();
+  }
+});
+
 test('Person 3 API wrappers pin their runtime search path', async () => {
   const db = await createDatabase();
   try {
@@ -681,6 +723,7 @@ test('profile RPC edits caller identity without returning account email', async 
       user_id: firstUser,
       username: 'one-new',
       display_name: 'One New',
+      name_setup_complete: true,
     });
     await assert.rejects(
       rpc(db, firstUser, 'update_my_profile', {

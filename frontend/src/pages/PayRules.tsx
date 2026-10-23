@@ -23,7 +23,7 @@ function useObLabel() {
   const { obligations, userName } = useStore()
   return (id: string) => {
     const obligation = obligations.find((item) => item.obligation_id === id)
-    return obligation ? `${userName(obligation.debtor_id)} → ${userName(obligation.creditor_id)} (${inr(obligation.remaining_amount)})` : "—"
+    return obligation ? `${userName(obligation.debtor_id)} → ${userName(obligation.creditor_id)} (${inr(obligation.remaining_amount)})` : "Debt unavailable"
   }
 }
 

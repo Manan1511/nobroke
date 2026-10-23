@@ -1,6 +1,6 @@
 BEGIN;
 CREATE EXTENSION IF NOT EXISTS pgtap WITH SCHEMA extensions;
-SELECT extensions.plan(17);
+SELECT extensions.plan(18);
 
 SELECT extensions.has_schema('api', 'PostgREST API schema exists');
 SELECT extensions.has_schema('app', 'application tables use a non-exposed schema');
@@ -26,6 +26,10 @@ SELECT extensions.ok(
   'hosted migration role can assign functions to the restricted owner role'
 );
 SELECT extensions.ok(
+  has_function_privilege('nobroke_executor', 'private.request_user_id()', 'EXECUTE'),
+  'restricted RPC owner can resolve the authenticated JWT identity'
+);
+SELECT extensions.ok(
   has_schema_privilege('nobroke_executor', 'private', 'CREATE'),
   'restricted owner can own functions in the private schema'
 );
@@ -38,9 +42,14 @@ SELECT extensions.is(
   (SELECT count(*)::integer FROM pg_catalog.pg_proc p
    JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'api'
-     AND (p.proconfig IS NULL OR NOT p.proconfig @> ARRAY['search_path=pg_catalog, private, auth, app, extensions, pg_temp'])),
+     AND (p.proconfig IS NULL OR NOT EXISTS (
+       SELECT 1
+       FROM unnest(p.proconfig) AS configured(setting)
+       WHERE configured.setting ~ '^search_path=pg_catalog(, (private|auth|app|extensions|pg_temp))*$'
+         AND configured.setting !~ ', pg_temp,'
+     ))),
   0,
-  'all api RPCs use a fixed search path'
+  'all api RPCs use a fixed safe search path rooted at pg_catalog'
 );
 SELECT extensions.is(
   (SELECT count(*)::integer FROM pg_catalog.pg_proc p

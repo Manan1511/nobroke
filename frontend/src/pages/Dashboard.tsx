@@ -4,15 +4,13 @@ import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { PageHeader, StatusBadge, UserAvatar, label } from "@/components/shared"
 import { PersonHover } from "@/components/form-bits"
-import { BalanceChart, GroupDonut, RecentActivity, SettledRing, SpendingChart, StatCard, UpcomingBills } from "@/components/dashboard"
+import { BalanceChart, ConfirmedPayments, GroupDonut, RecentActivity, SpendingChart, StatCard, UpcomingBills } from "@/components/dashboard"
 import { useStore } from "@/lib/store"
 import { cn, inr } from "@/lib/utils"
-import { Magnetic } from "@/components/motion"
-import GradientText from "@/components/bits/GradientText"
-import RotatingText from "@/components/bits/RotatingText"
-import StarBorder from "@/components/bits/StarBorder"
+import { filterOpenObligations } from "@/lib/dashboard-data.mjs"
 import { useSession } from "@/lib/session"
 
 // Soft colour per split type, so the recent expenses list is easy to scan.
@@ -28,29 +26,26 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
   const armed = rules.filter((r) => r.status === "ARMED").length
   const session = useSession()
   const thisMonth = Number(dashboard.current_month_spend)
+  const hasGroups = dashboard.group_count > 0
+  const showFirstGroupPrompt = !loading && !loadError && !hasGroups
+  const openObligations = filterOpenObligations(obligations).filter((o) => o.debtor_id === me || o.creditor_id === me)
 
   return (
     <>
       <PageHeader title="Dashboard" description="Where your money stands across every group."
-        action={<div className="flex gap-2">
-          <StarBorder as="button" type="button" onClick={() => onNavigate("settle")} color="#ff4a1c" radius={999} thickness={1.5} duration={5} className="h-9 px-4! py-0! text-sm"><ArrowLeftRight className="size-4" /> Settle up</StarBorder>
-          <Magnetic><Button onClick={() => onNavigate("expenses")}><Plus /> Add expense</Button></Magnetic>
+        action={hasGroups && <div className="flex gap-2">
+          <Button variant="outline" onClick={() => onNavigate("settle")}><ArrowLeftRight /> Settle up</Button>
+          <Button onClick={() => onNavigate("expenses")}><Plus /> Add expense</Button>
         </div>} />
 
       {loadError && <Alert variant="destructive"><Info /><AlertTitle>Could not refresh your dashboard</AlertTitle>
-        <AlertDescription className="flex flex-wrap items-center justify-between gap-2">Your account data is still protected. Check your connection and retry.
+        <AlertDescription className="flex flex-wrap items-center justify-between gap-2">We could not load your latest account data. Check your connection and retry.
           <Button variant="outline" size="sm" onClick={() => void refresh()}>Retry</Button>
         </AlertDescription></Alert>}
 
-      {/* Greeting: the name shimmers in the landing's orange/gold; the motto rotates. */}
-      <p className="-mt-3 flex flex-wrap items-baseline gap-x-2 text-lg text-muted-foreground">
-        <span>{greeting()},</span>
-        <GradientText colors={["#ff4a1c", "#ffcf36", "#ff4a1c"]} animationSpeed={6} className="font-semibold">{(session?.name ?? "there").split(" ")[0]}</GradientText>
-        <span aria-hidden="true">·</span>
-        <RotatingText texts={["Split it.", "Settle it.", "Stay unbroke."]} rotationInterval={2600} mainClassName="font-medium text-foreground" />
-      </p>
+      <p className="-mt-3 text-lg font-medium text-foreground">{greeting()}, {(session?.name ?? "there").split(" ")[0]}.</p>
 
-      {armed > 0 && (
+      {hasGroups && armed > 0 && (
         <Alert className="border-info/25 bg-info-soft [&>svg]:text-info">
           <Info />
           <AlertTitle>{armed} pay-when-paid rule{armed > 1 ? "s are" : " is"} waiting</AlertTitle>
@@ -61,11 +56,21 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
         </Alert>
       )}
 
+      {showFirstGroupPrompt ? (
+        <Empty className="min-h-80">
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><Plus /></EmptyMedia>
+            <EmptyTitle>Start with a group</EmptyTitle>
+            <EmptyDescription>Create a group for a flat, trip, or shared plan. Add expenses to see balances and spending here.</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent><Button onClick={() => onNavigate("groups")}>Create your first group</Button></EmptyContent>
+        </Empty>
+      ) : hasGroups || loading ? <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard title="You owe" value={owe} icon={ArrowUpRight} tone="negative" loading={loading}
           note={`Across ${dashboard.open_payable_count} open debt${dashboard.open_payable_count === 1 ? "" : "s"}`} />
         <StatCard title="You're owed" value={owed} icon={ArrowDownLeft} tone="positive" loading={loading}
-          note={`Across ${dashboard.open_receivable_count} open receivable${dashboard.open_receivable_count === 1 ? "" : "s"}`} />
+          note={`Across ${dashboard.open_receivable_count} open balance${dashboard.open_receivable_count === 1 ? "" : "s"}`} />
         <StatCard title="Net balance" value={net} icon={Scale} tone={net < 0 ? "negative" : net > 0 ? "positive" : "neutral"} loading={loading}
           note={net < 0 ? "You owe more than you're owed" : net > 0 ? "You're owed more than you owe" : "You're all square"} />
         <StatCard title="Your spending this month" value={thisMonth} icon={Wallet} tone="neutral" loading={loading} />
@@ -73,7 +78,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
 
       <div className="grid gap-4 xl:grid-cols-12">
         <div className="xl:col-span-8 [&>*]:h-full"><SpendingChart /></div>
-        <div className="xl:col-span-4 [&>*]:h-full"><SettledRing /></div>
+        <div className="xl:col-span-4 [&>*]:h-full"><ConfirmedPayments /></div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-12">
@@ -89,9 +94,12 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
           </CardHeader>
           <CardContent>
             {loading ? <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-8" />)}</div> : (
+              openObligations.length === 0 ? <Empty className="border-0 py-6">
+                <EmptyHeader><EmptyTitle>You're all square</EmptyTitle><EmptyDescription>New group expenses will appear here until they're cleared.</EmptyDescription></EmptyHeader>
+              </Empty> :
               <Table>
                 <TableBody>
-                  {obligations.filter((o) => (o.debtor_id === me || o.creditor_id === me) && o.status !== "SETTLED").slice(0, 5).map((o) => {
+                  {openObligations.slice(0, 5).map((o) => {
                     const iOwe = o.debtor_id === me
                     const other = iOwe ? o.creditor_id : o.debtor_id
                     return (
@@ -125,6 +133,10 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
           </CardHeader>
           <CardContent>
             {loading ? <div className="space-y-2">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-8" />)}</div> : (
+              expenses.length === 0 ? <Empty className="border-0 py-6">
+                <EmptyHeader><EmptyTitle>No expenses yet</EmptyTitle><EmptyDescription>Add a shared expense to see it here.</EmptyDescription></EmptyHeader>
+                <EmptyContent><Button variant="outline" size="sm" onClick={() => onNavigate("expenses")}>Add an expense</Button></EmptyContent>
+              </Empty> :
               <Table>
                 <TableHeader><TableRow><TableHead>Expense</TableHead><TableHead>Group</TableHead><TableHead className="text-right">Total</TableHead></TableRow></TableHeader>
                 <TableBody>
@@ -147,6 +159,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (id: string) => 
         </Card>
         <RecentActivity onNavigate={onNavigate} />
       </div>
+      </> : null}
     </>
   )
 }

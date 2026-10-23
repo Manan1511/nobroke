@@ -1,4 +1,4 @@
-# PRD.md — Social Liquidity & Automated Expense Clearinghouse
+# PRD.md: Social Liquidity & Automated Expense Clearinghouse
 
 > **Approved MVP contract:** this document's original sketches predate the Supabase implementation. Money stays in INR and the app is a debt ledger. People make payments outside NoBroke; debtor reports payment and creditor confirms receipt before debt changes. Routing reallocates debt without moving cash. Pay-when-paid rules create forwarding tasks, and each resulting payment needs separate receipt confirmation. Armed cycle netting clears ledger debt without cash. Trust defaults to ₹0.00 and increases only with explicit creditor consent. PostgreSQL owns all financial calculations and returns decimal strings. Exact salaries are discarded after conversion to private income bands.
 

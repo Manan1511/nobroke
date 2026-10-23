@@ -1,9 +1,9 @@
 # NoBroke
 
-NoBroke is a group expense and debt-clearing web app. The repository keeps the frontend and Supabase backend in separate folders and package installations:
+NoBroke helps groups split shared expenses, track balances, and record confirmed outside payments. The repository keeps the frontend and Supabase backend in separate folders and package installations:
 
-- [`frontend/`](frontend/README.md) — Person 1's React/Vite interface. It currently uses mock data and local storage; it contains no backend or financial business logic.
-- [`backend/`](backend/README.md) — Person 2's Supabase migrations, API contracts, and database tests. Person 3's debt-clearing hooks are documented in [`backend/docs/person-3-integration.md`](backend/docs/person-3-integration.md).
+- [`frontend/`](frontend/README.md): React/Vite client connected to Supabase Auth and the database API. PostgreSQL owns financial calculations.
+- [`backend/`](backend/README.md): Supabase schema, migrations, API contracts, debt-clearing hooks, and database tests. See [`backend/docs/person-3-integration.md`](backend/docs/person-3-integration.md) for the debt engine boundary.
 
 ## Run the frontend
 
