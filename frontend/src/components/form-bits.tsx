@@ -9,7 +9,6 @@ import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card"
 import { UserAvatar } from "@/components/shared"
@@ -107,13 +106,47 @@ export function PeoplePicker({ options, value, onChange, placeholder = "Add peop
 
 // options: [{ value, label }]
 export function SimpleSelect({ id, value, onValueChange, options, placeholder = "Choose…", className }: { id?: string; value: string; onValueChange: (v: string) => void; options: { value: string; label: string }[]; placeholder?: string; className?: string }) {
+  const [open, setOpen] = useState(false)
+  const selected = options.find((option) => option.value === value)
+
   return (
-    <Select value={value} onValueChange={onValueChange}>
-      <SelectTrigger id={id} className={cn("w-full", className)}><SelectValue placeholder={placeholder} /></SelectTrigger>
-      <SelectContent>
-        {options.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-      </SelectContent>
-    </Select>
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
+      <PopoverTrigger asChild>
+        <Button
+          id={id}
+          type="button"
+          variant="outline"
+          role="combobox"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          className={cn("w-full justify-between font-normal", className)}
+        >
+          <span className={cn("min-w-0 truncate text-left", !selected && "text-muted-foreground")}>
+            {selected?.label ?? placeholder}
+          </span>
+          <ChevronsUpDown aria-hidden="true" className="ml-2 size-4 shrink-0 opacity-50" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-(--radix-popover-trigger-width) p-0">
+        <Command>
+          <CommandList>
+            <CommandEmpty>No options available.</CommandEmpty>
+            <CommandGroup>
+              {options.map((option) => (
+                <CommandItem
+                  key={option.value}
+                  value={option.value}
+                  onSelect={() => { onValueChange(option.value); setOpen(false) }}
+                >
+                  {option.label}
+                  <Check className={cn("ml-auto size-4", value === option.value ? "opacity-100" : "opacity-0")} />
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
   )
 }
 

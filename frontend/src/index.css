@@ -216,6 +216,25 @@
 html, body { background-color: var(--background); color: var(--foreground); font-family: var(--font-sans); }
 body { overflow-x: clip; }
 
+/* Keep native scrollbars quiet, warm, and legible in both NoBroke themes. */
+:root {
+  --scrollbar-track: color-mix(in oklab, var(--background) 68%, var(--card));
+  --scrollbar-thumb: color-mix(in oklab, var(--muted-foreground) 72%, var(--brand) 28%);
+}
+html, body, * {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-track { border-radius: 999px; background: var(--scrollbar-track); }
+*::-webkit-scrollbar-thumb {
+  border: 2px solid var(--scrollbar-track);
+  border-radius: 999px;
+  background-color: var(--scrollbar-thumb);
+}
+*::-webkit-scrollbar-thumb:hover { background-color: var(--brand); }
+*::-webkit-scrollbar-corner { background: var(--scrollbar-track); }
+
 /* Keep page copy from being selected in large accidental drags. Editable text stays selectable. */
 *, *::before, *::after {
   -webkit-user-select: none;
