@@ -2,8 +2,11 @@ import { StrictMode, Suspense, lazy } from "react"
 import { createRoot } from "react-dom/client"
 import { BrowserRouter, MemoryRouter, Route, Routes } from "react-router"
 import "./index.css"
-// Each area loads only when opened: the 3D landing, the app, and the 404 page are separate downloads.
-const Landing = lazy(() => import("@/landing/Landing"))
+// Keep the landing scene code-split, but fetch it alongside the landing component so the tubes are ready sooner.
+const Landing = lazy(() => {
+  void import("@/landing/scene").catch(() => {})
+  return import("@/landing/Landing")
+})
 const App = lazy(() => import("./App"))
 const NotFound = lazy(() => import("@/pages/NotFound"))
 const Loading = () => <div className="min-h-svh bg-background" aria-busy="true" />

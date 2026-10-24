@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const target = () => ({
@@ -10,6 +11,14 @@ const target = () => ({
   querySelectorAll() { return []; },
   style: {},
   contains() { return false; },
+});
+
+test("landing route starts the optional scene download with the landing component", async () => {
+  const source = await readFile(new URL("../src/main.tsx", import.meta.url), "utf8");
+  assert.match(
+    source,
+    /const Landing = lazy\(\(\) => \{\s*void import\("@\/landing\/scene"\)\.catch\(\(\) => \{\}\)\s*return import\("@\/landing\/Landing"\)\s*\}\)/,
+  );
 });
 
 test("leaving the landing route completes scene cleanup", async () => {
