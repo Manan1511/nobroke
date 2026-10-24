@@ -218,6 +218,31 @@ test('global settlement list RPCs resolve the caller without auth schema access'
   }
 });
 
+test('friend list RPC resolves the caller without executor auth schema access', async () => {
+  const db = await createDatabase();
+  try {
+    await makeFriends(db, firstUser, 'two', secondUser);
+    await db.exec('REVOKE USAGE ON SCHEMA auth FROM nobroke_executor');
+
+    const { rows } = await rpc(db, firstUser, 'list_my_friends');
+    assert.equal(rows[0].result.length, 1);
+    assert.equal(rows[0].result[0].friend_id, secondUser);
+
+    const { rows: unsafeFunctions } = await db.query(`
+      SELECT n.nspname || '.' || p.proname AS function_name
+      FROM pg_catalog.pg_proc AS p
+      JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'private'
+        AND p.proowner = 'nobroke_executor'::regrole
+        AND p.prosecdef
+        AND p.prosrc LIKE '%auth.uid()%'
+      ORDER BY function_name`);
+    assert.deepEqual(unsafeFunctions, []);
+  } finally {
+    await db.close();
+  }
+});
+
 test('new accounts must confirm their preferred display name before the app uses it', async () => {
   const db = await createDatabase();
   try {
