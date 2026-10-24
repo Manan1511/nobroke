@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react"
 import { toast } from "sonner"
 import { isSupabaseConfigured, supabase } from "@/lib/supabase"
-import { authCallbackPath } from "@/lib/auth-navigation"
+import { authCallbackUrl, authResetUrl } from "@/lib/auth-navigation"
 import { requestSignup } from "@/lib/auth-signup"
 import { validateAuthForm } from "@/lib/auth-validation"
 
@@ -40,13 +40,12 @@ export function AuthPanel({ mode, next, onModeChange, onClose, onDone }: {
     try {
       if (recovery) {
         const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-          redirectTo: `${window.location.origin}/auth/reset`,
+          redirectTo: authResetUrl(),
         })
         if (error) throw error
         setSent(true)
       } else if (signup) {
-        const emailRedirectTo = new URL(authCallbackPath(next), window.location.origin).toString()
-        await requestSignup(supabase.auth, email.trim(), password, emailRedirectTo)
+        await requestSignup(supabase.auth, email.trim(), password, authCallbackUrl(next))
         setPassword("")
         setSent(true)
       } else {
