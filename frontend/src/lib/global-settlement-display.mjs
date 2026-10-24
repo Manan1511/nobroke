@@ -37,6 +37,16 @@ export function visibleGlobalSettlementHistory(items) {
   return Array.isArray(items) ? items.filter((item) => item?.plan_status !== "CANCELLED") : []
 }
 
+export function globalTransferDirection(transfer, viewerId) {
+  if (viewerId && transfer?.debtor_user_id === viewerId) {
+    return { perspective: "outgoing", label: `You pay ${transfer.creditor_name}` }
+  }
+  if (viewerId && transfer?.creditor_user_id === viewerId) {
+    return { perspective: "incoming", label: `${transfer.debtor_name} pays you` }
+  }
+  return { perspective: "other", label: `${transfer?.debtor_name ?? "Someone"} pays ${transfer?.creditor_name ?? "someone"}` }
+}
+
 export function globalTransferActions(transfer, viewerId, sourceFriendshipsActive = true) {
   if (!transfer || !viewerId) return []
   const isDebtor = transfer.debtor_user_id === viewerId

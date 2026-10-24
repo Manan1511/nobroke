@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { ArrowRight, Route, TriangleAlert, CircleCheck, Banknote, Check, X, Bell } from "lucide-react"
+import { ArrowDownLeft, ArrowRight, ArrowUpRight, Banknote, Bell, Check, ChevronDown, CircleCheck, Route, TriangleAlert, X } from "lucide-react"
 import { toast } from "sonner"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -21,7 +21,7 @@ import { resolveSelectedObligation } from "@/lib/selection"
 import { availableMoney, compareMoney, isPositiveMoney } from "@/lib/money.mjs"
 import { findRemindableReceivable, individualPaymentTargets, netPosition, onePaymentTargetPerPeer } from "@/lib/net-position.mjs"
 import { listAllPages } from "@/lib/pagination.mjs"
-import { canAcceptGlobalSettlementPlan, canCancelGlobalSettlementPlan, canDeclineGlobalSettlementPlan, globalTransferActions, hasOpenGlobalSettlementPreview, visibleGlobalSettlementHistory } from "@/lib/global-settlement-display.mjs"
+import { canAcceptGlobalSettlementPlan, canCancelGlobalSettlementPlan, canDeclineGlobalSettlementPlan, globalTransferActions, globalTransferDirection, hasOpenGlobalSettlementPreview, visibleGlobalSettlementHistory } from "@/lib/global-settlement-display.mjs"
 import type { GlobalSettlementHistoryItem, GlobalSettlementPlan, RoutePreview } from "@backend/api-contract"
 import { inr } from "@/lib/utils"
 
@@ -299,12 +299,14 @@ export default function SettleUp() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="grid min-w-0 gap-1">
                 <div className="flex flex-wrap items-center gap-2"><Badge variant="outline">{globalStatusLabel(plan.status, plan.expires_at)}</Badge><span className="text-xs text-muted-foreground">Created {new Date(plan.created_at).toLocaleString()}</span></div>
-                <p className="text-sm text-muted-foreground">Friends involved: {plan.participants.map((participant) => participant.display_name).join(", ")}</p>
+                <p className="text-sm text-muted-foreground">
+                  {plan.transfers.length === 1 ? "One payment" : `${plan.transfers.length} payments`} across your groups. Accepting reserves the included debts; only the amounts shown are paid, and balances update after each recipient confirms.
+                </p>
               </div>
               {(canAcceptGlobalSettlementPlan(plan, me) || canCancelGlobalSettlementPlan(plan, me) || canDeclineGlobalSettlementPlan(plan, me)) &&
                 <div className="flex flex-wrap gap-2">
                   {canAcceptGlobalSettlementPlan(plan, me) && <Button size="sm" disabled={!!busy} onClick={() => void acceptGlobalPlan(plan)}>
-                    {busy === plan.plan_id && <Spinner />} Accept and reserve debts
+                    {busy === plan.plan_id && <Spinner />} Accept plan
                   </Button>}
                   {(canCancelGlobalSettlementPlan(plan, me) || canDeclineGlobalSettlementPlan(plan, me)) &&
                     <Button size="sm" variant="outline" disabled={!!busy} onClick={() => void dismissGlobalPlan(plan)}>
@@ -315,20 +317,38 @@ export default function SettleUp() {
             <div className="grid gap-3">
               {plan.transfers.map((transfer) => {
                 const actions = globalTransferActions(transfer, me, transfer.source_friendships_active)
-                return <div key={transfer.transfer_id} className="grid min-w-0 gap-3 rounded-xl border p-3">
+                const direction = globalTransferDirection(transfer, me)
+                const directionColor = direction.perspective === "outgoing"
+                  ? "text-destructive"
+                  : direction.perspective === "incoming" ? "text-emerald-500" : "text-foreground"
+                return <div key={transfer.transfer_id} className="grid min-w-0 gap-3 border-t py-3 first:border-t-0 first:pt-0 last:pb-0">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
-                      <span>{transfer.debtor_name}</span><ArrowRight className="size-4 text-muted-foreground" /><span>{transfer.creditor_name}</span>
-                      <Badge variant="outline">{globalStatusLabel(transfer.status)}</Badge>
+                      {direction.perspective === "outgoing"
+                        ? <ArrowUpRight aria-hidden="true" className="size-4 text-destructive" />
+                        : direction.perspective === "incoming"
+                          ? <ArrowDownLeft aria-hidden="true" className="size-4 text-emerald-500" />
+                          : <ArrowRight aria-hidden="true" className="size-4 text-muted-foreground" />}
+                      <span className={directionColor}>{direction.label}</span>
+                      {!(plan.status === "PREVIEW" && transfer.status === "PLANNED") && <Badge variant="outline">{globalStatusLabel(transfer.status)}</Badge>}
                     </div>
                     <span className="shrink-0 font-semibold tabular-nums">{inr(transfer.amount)}</span>
                   </div>
-                  <div className="grid gap-1 border-l-2 pl-3 text-xs text-muted-foreground">
-                    {transfer.allocations.map((allocation) => <div key={allocation.allocation_id} className="flex min-w-0 flex-wrap justify-between gap-x-4 gap-y-1">
-                      <span className="min-w-0">{allocation.kind === "CYCLE_CLEAR" ? "Cycle balance" : "Payment"} · {allocation.group_name} · {allocation.expense_title}</span>
-                      <span className="shrink-0 tabular-nums">{inr(allocation.amount)}</span>
-                    </div>)}
-                  </div>
+                  {transfer.allocations.length > 0 && <details className="group min-w-0 rounded-xl border bg-card/30 px-3 py-2">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
+                      <span>What this clears ({transfer.allocations.length})</span>
+                      <ChevronDown aria-hidden="true" className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+                    </summary>
+                    <div className="mt-3 grid gap-3 border-t pt-3">
+                      <p className="text-xs text-muted-foreground">These are existing debts included in the plan, not extra payments. You send only the amount shown above.</p>
+                      <div className="grid gap-2 text-sm">
+                        {transfer.allocations.map((allocation) => <div key={allocation.allocation_id} className="flex min-w-0 flex-wrap justify-between gap-x-4 gap-y-1">
+                          <span className="min-w-0">{allocation.expense_title} <span className="text-muted-foreground">· {allocation.group_name}</span></span>
+                          <span className="shrink-0 tabular-nums text-muted-foreground">{inr(allocation.amount)}</span>
+                        </div>)}
+                      </div>
+                    </div>
+                  </details>}
                   {transfer.source_friendships_active === false && (transfer.status === "ACCEPTED" || transfer.status === "PENDING") &&
                     <p className="text-xs text-destructive">A source friendship is no longer active. Reporting or confirming is paused. Cancel or reject this transfer, or restore the friendship.</p>}
                   {actions.length > 0 && <div className="flex flex-wrap gap-2">

@@ -8,10 +8,11 @@ let hasOpenGlobalSettlementPreview
 let globalTransferActions
 let effectiveGlobalNettingPreference
 let visibleGlobalSettlementHistory
+let globalTransferDirection
 try {
   ({ canAcceptGlobalSettlementPlan, canCancelGlobalSettlementPlan, canDeclineGlobalSettlementPlan,
     hasOpenGlobalSettlementPreview, globalTransferActions, effectiveGlobalNettingPreference,
-    visibleGlobalSettlementHistory } = await import("../src/lib/global-settlement-display.mjs"))
+    visibleGlobalSettlementHistory, globalTransferDirection } = await import("../src/lib/global-settlement-display.mjs"))
 } catch {
   canAcceptGlobalSettlementPlan = undefined
   canCancelGlobalSettlementPlan = undefined
@@ -20,7 +21,19 @@ try {
   globalTransferActions = undefined
   effectiveGlobalNettingPreference = undefined
   visibleGlobalSettlementHistory = undefined
+  globalTransferDirection = undefined
 }
+
+test("global settlement preview states who pays from the viewer's perspective", () => {
+  assert.equal(typeof globalTransferDirection, "function", "the payment direction should be explicit")
+  const transfer = {
+    debtor_user_id: "manan", debtor_name: "Manan",
+    creditor_user_id: "jv", creditor_name: "JV",
+  }
+  assert.deepEqual(globalTransferDirection(transfer, "manan"), { perspective: "outgoing", label: "You pay JV" })
+  assert.deepEqual(globalTransferDirection(transfer, "jv"), { perspective: "incoming", label: "Manan pays you" })
+  assert.deepEqual(globalTransferDirection(transfer, "harsh"), { perspective: "other", label: "Manan pays JV" })
+})
 
 test("global netting is enabled by default and respects a saved opt-out", () => {
   assert.equal(typeof effectiveGlobalNettingPreference, "function", "global netting defaults should be explicit")

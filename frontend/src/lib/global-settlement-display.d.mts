@@ -29,6 +29,11 @@ export function visibleGlobalSettlementHistory<T extends { plan_status?: string 
   items: T[] | null | undefined,
 ): T[]
 
+export function globalTransferDirection(
+  transfer: { debtor_user_id: string; debtor_name: string; creditor_user_id: string; creditor_name: string } | null | undefined,
+  viewerId: string | null | undefined,
+): { perspective: "outgoing" | "incoming" | "other"; label: string }
+
 export function globalTransferActions(
   transfer: { debtor_user_id: string; creditor_user_id: string; status: string } | null | undefined,
   viewerId: string | null | undefined,
